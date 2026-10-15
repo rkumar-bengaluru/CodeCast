@@ -52,3 +52,15 @@ def test_identifier_grounding_is_case_sensitive_whole_token():
     assert not identifier_grounded("vit-b-32", texts)
     assert not identifier_grounded("ViT-B", texts)     # not a whole token
     assert not identifier_grounded("B-32", texts)
+
+
+def test_long_source_literal_does_not_raise():
+    # Would overflow the default 28-digit context in quantize without a sized context.
+    assert number_grounded("12", ["1234567890123456789012345678901.5"]) is False
+
+
+def test_long_literal_legitimately_rounds():
+    assert number_grounded(
+        "1234567890123456789012345678901234",
+        ["1234567890123456789012345678901234.4"],
+    ) is True

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, InvalidOperation, localcontext
 from typing import Iterable, Literal
 
 NUMBER_RE = re.compile(r"-?\d+(?:,\d{3})*(?:\.\d+)?%?")
@@ -197,24 +197,36 @@ def _rounds_to(v: Decimal, vdec: int, s: Decimal, max_n: int) -> bool:
     return False
 
 
+def _literal_matches(v: Decimal, v_pct: bool, v_dec: int, lit: str) -> bool:
+    ps = _parse(lit)
+    if ps is None:
+        return False
+    s, s_pct, s_dec = ps
+    if v_pct == s_pct:
+        if v == s and v_dec <= s_dec:
+            return True
+        return s_dec > 0 and _rounds_to(v, v_dec, s, s_dec - 1)
+    if v_pct and not s_pct:
+        return _rounds_to(v, v_dec, s * 100, max(s_dec - 2, 0))
+    return False
+
+
 def number_grounded(value: str, literals: Iterable[str]) -> bool:
     pv = _parse(value)
     if pv is None:
         return False
     v, v_pct, v_dec = pv
     for lit in literals:
-        ps = _parse(lit)
-        if ps is None:
-            continue
-        s, s_pct, s_dec = ps
-        if v_pct == s_pct:
-            if v == s and v_dec <= s_dec:
-                return True
-            if s_dec > 0 and _rounds_to(v, v_dec, s, s_dec - 1):
-                return True
-        elif v_pct and not s_pct:
-            if _rounds_to(v, v_dec, s * 100, max(s_dec - 2, 0)):
-                return True
+        # Source text is untrusted: size the context to the operands so quantize and
+        # the percent multiply never hit the default 28-digit limit, and treat any
+        # remaining InvalidOperation as no match for this literal.
+        with localcontext() as ctx:
+            ctx.prec = max(28, len(value) + len(lit) + 10)
+            try:
+                if _literal_matches(v, v_pct, v_dec, lit):
+                    return True
+            except InvalidOperation:
+                continue
     return False
 
 
