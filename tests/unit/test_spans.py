@@ -135,7 +135,7 @@ def test_format_cell_wide_value_regression():
 
 
 def test_span_mismatch_message_pinpoints_line_count(tiny_repo):
-    issues, _ = check_sources([TextSpan(id="c", file="crlf.txt", start_line=1, end_line=2, text="alpha 1")],
+    issues, _ = check_sources([TextSpan(id="c", file="crlf.txt", start_line=1, end_line=2, text="alpha one")],
                               tiny_repo)
     assert issues[0].code == "SPAN_TEXT_MISMATCH"
     assert "1 line(s)" in issues[0].message and "lines 1-2 are 2 lines" in issues[0].message
@@ -167,3 +167,13 @@ def test_span_ending_on_blank_line_still_rejects_wrong_line_count(tiny_repo, tex
     repo = _with_blank_lines(tiny_repo)
     issues, _ = check_sources([TextSpan(id="s", file="blank.md", start_line=1, end_line=2, text=text)], repo)
     assert [i.code for i in issues] == ["SPAN_TEXT_MISMATCH"]
+
+
+@pytest.mark.parametrize("start,end,first,last", [(1, 2, 1, 3), (1, 2, 2, 3), (2, 3, 1, 2)])
+def test_span_mismatch_message_names_the_lines_the_text_really_is(tiny_repo, start, end, first, last):
+    lines = read_lines(Path(tiny_repo.root) / "README.md")
+    text = "\n".join(lines[first - 1:last])
+    issues, _ = check_sources([TextSpan(id="r", file="README.md", start_line=start, end_line=end, text=text)],
+                              tiny_repo)
+    assert issues[0].code == "SPAN_TEXT_MISMATCH"
+    assert f"your text is exactly lines {first}-{last}" in issues[0].message

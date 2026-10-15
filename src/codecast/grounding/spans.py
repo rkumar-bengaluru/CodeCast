@@ -113,9 +113,23 @@ def _issue(i: int, code: str, message: str) -> Issue:
     return Issue(path=f"sources[{i}]", code=code, message=message)
 
 
-def _mismatch_hint(claimed: str, actual: str, start_line: int) -> str:
+def _exact_range(got: list[str], lines: list[str], start_line: int) -> tuple[int, int] | None:
+    """The 1-based line range whose lines equal `got` exactly, nearest to start_line; None if none."""
+    n = len(got)
+    hits = [s for s in range(len(lines) - n + 1) if lines[s:s + n] == got]
+    if not hits:
+        return None
+    s = min(hits, key=lambda h: abs(h + 1 - start_line))
+    return s + 1, s + n
+
+
+def _mismatch_hint(claimed: str, actual: str, start_line: int, lines: list[str]) -> str:
     """Say where claimed span text first departs from the file, so the agent can fix it in one round."""
     got, want = claimed.split("\n"), actual.split("\n")
+    exact = _exact_range(got, lines, start_line)
+    if exact is not None:
+        return (f"your text is exactly lines {exact[0]}-{exact[1]}: set start_line {exact[0]} and "
+                f"end_line {exact[1]}, keeping the text")
     if len(got) != len(want):
         return (f"your text has {len(got)} line(s); lines {start_line}-{start_line + len(want) - 1} "
                 f"are {len(want)} lines")
@@ -165,7 +179,7 @@ def check_sources(sources: list[Source], repomap: RepoMap) -> tuple[list[Issue],
             if claimed != actual:
                 issues.append(_issue(i, "SPAN_TEXT_MISMATCH",
                                      f"text differs from {src.file}:{src.start_line}-{src.end_line} "
-                                     f"({_mismatch_hint(claimed, actual, src.start_line)}); copy the lines "
+                                     f"({_mismatch_hint(claimed, actual, src.start_line, lines)}); copy the lines "
                                      f"exactly as read_file shows them (without line numbers)"))
                 continue
             index.texts[src.id] = actual
