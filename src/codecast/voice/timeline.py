@@ -140,8 +140,10 @@ def duration_feedback(timeline: Timeline, sb: Storyboard, *, target: tuple[float
         "total": round(timeline.total, 6),
         "target": [lo, hi],
         "spoken_words": words,
+        "target_words": words + delta_words,
         "instruction": (f"The video is {timeline.total:.1f}s; it must be {lo:.0f}-{hi:.0f}s. "
-                        f"{verb.capitalize()} the narration by about {abs(delta_words)} words and resubmit the "
-                        f"full storyboard with submit_storyboard. Keep every rule; to {verb}, edit sentences, "
-                        f"do not invent facts."),
+                        f"{verb.capitalize()} the narration by about {abs(delta_words)} words, from {words} to "
+                        f"about {words + delta_words} words, and resubmit the full storyboard with "
+                        f"submit_storyboard; unchanged narration will fail again. Keep every rule; to {verb}, "
+                        f"edit or drop sentences, do not invent facts."),
     })
