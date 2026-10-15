@@ -26,8 +26,22 @@ def test_transcript_logs_and_replays(tmp_path):
     t.log_response(1, r1)
     t.log_event(1, "duration_feedback", {"total": 63.0})
     t.log_response(2, r2)
-    kinds = [json.loads(l)["type"] for l in path.read_text().splitlines()]
+    kinds = [json.loads(l)["type"] for l in path.read_text().split("\n") if l.strip()]
     assert kinds == ["request", "response", "event", "response"]
     assert load_responses(path) == [r1, r2]
     fp = FakeProvider.from_transcript(path)
     assert fp.complete(req) == r1 and fp.complete(req) == r2
+
+
+def test_unicode_line_separators_in_content_round_trip(tmp_path):
+    # U+0085 / U+2028 / U+2029 are not escaped by json.dumps(ensure_ascii=False) and must not split a record.
+    odd = "a b c\x85d e f g h"
+    path = tmp_path / "transcript.jsonl"
+    t = Transcript(path)
+    result = ToolResultPart("c1", [TextPart(odd)])
+    req = ChatRequest(messages=[Message("tool", [result])])
+    t.log_request(1, req, [Message("tool", [result])])
+    resp = ChatResponse(Message("assistant", [TextPart(odd)]), "end_turn", Usage())
+    t.log_response(1, resp)
+    assert load_responses(path) == [resp]
+    assert [json.loads(l)["type"] for l in path.read_text().split("\n") if l.strip()] == ["request", "response"]

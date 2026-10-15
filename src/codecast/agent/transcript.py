@@ -85,7 +85,11 @@ class Transcript:
 def load_responses(path: Path) -> list[ChatResponse]:
     path = Path(path)
     out = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    # Split on "\n" only: str.splitlines() also breaks on U+0085, U+2028 and U+2029, which json.dumps
+    # leaves raw under ensure_ascii=False, and tool results carry untrusted repo text.
+    for line in path.read_text(encoding="utf-8").split("\n"):
+        if not line.strip():
+            continue
         rec = json.loads(line)
         if rec["type"] == "response":
             out.append(ChatResponse(message_from_json(rec["message"], path.parent), rec["stop"],
