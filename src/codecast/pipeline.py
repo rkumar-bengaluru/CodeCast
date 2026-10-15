@@ -88,6 +88,8 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
             raise ConfigError("--from-stage requires --run <run_id>")
         resume_at = STAGES.index(opts.from_stage) if opts.from_stage else 0
         ws.mkdir(parents=True, exist_ok=True)
+        if resume_at > 0:
+            _carry_forward(rep, ws / "run_report.json", STAGES[:resume_at])  # read before anything overwrites it
         if preflight:
             from codecast.preflight import fatal_problems
             problems = fatal_problems(cfg, require_key=resume_at <= 1, allow_network_tts=opts.allow_network_tts)
@@ -205,6 +207,19 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
                 pass
         shutil.rmtree(out_root / name / f".staging-{run_id}", ignore_errors=True)
         return final
+
+
+def _carry_forward(rep: RunReport, path: Path, kept_stages: tuple[str, ...]) -> None:
+    """Resume: keep the earlier run's agent accounting and timings for the stages that are not re-run."""
+    try:
+        prior = RunReport.model_validate_json(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    rep.llm, rep.budget, rep.usage = prior.llm, prior.budget, prior.usage
+    rep.cost_usd, rep.cost_unknown_reason, rep.context = prior.cost_usd, prior.cost_unknown_reason, prior.context
+    rep.validation, rep.ingest = prior.validation, prior.ingest
+    rep.repo_url, rep.commit_sha = prior.repo_url, prior.commit_sha
+    rep.stage_seconds.update({k: v for k, v in prior.stage_seconds.items() if k in kept_stages})
 
 
 def _agent_stats(rep, agent: DirectorAgent, submitter: Submitter, cfg: Config) -> None:

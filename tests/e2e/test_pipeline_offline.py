@@ -131,3 +131,40 @@ def test_unwritable_out_dir_still_returns_report(git_repo, tmp_path):
     rep = run(RunOptions(repo="git@github.com:o/r.git", out_dir=blocker / "o", workspace=tmp_path / "ws", run_id="r9"),
               load_config(), provider=FakeProvider([]), engine=SilenceEngine(), preflight=False)
     assert rep.exit_code == 2
+
+
+def test_resume_carries_agent_accounting_forward(git_repo, tmp_path):
+    from codecast.llm.types import Usage
+    first = run(opts(git_repo, tmp_path), load_config(),
+                provider=FakeProvider([tool_call("submit_storyboard", {"storyboard": valid_submission()},
+                                                 usage=Usage(1000, 200, 300, 0))]),
+                engine=SilenceEngine(0.4), preflight=False)
+    assert first.status == "ok" and first.usage.input == 1000
+    rep = run(opts(git_repo, tmp_path, from_stage="render"), load_config(), provider=FakeProvider([]),
+              engine=SilenceEngine(0.4), preflight=False)
+    assert rep.status == "ok", rep.failure
+    assert rep.usage == first.usage and rep.budget == first.budget and rep.validation == first.validation
+    assert rep.cost_usd == first.cost_usd and rep.cost_unknown_reason == first.cost_unknown_reason
+    assert rep.llm == first.llm and rep.commit_sha == first.commit_sha
+    for st in ("ingest", "agent", "voice"):
+        assert rep.stage_seconds[st] == first.stage_seconds[st]
+    assert set(rep.stage_seconds) == {"ingest", "agent", "voice", "render", "compose"}
+
+
+def test_resume_without_prior_report_still_works(git_repo, tmp_path):
+    run(opts(git_repo, tmp_path), load_config(), provider=FakeProvider([submit()]),
+        engine=SilenceEngine(0.4), preflight=False)
+    (tmp_path / "ws" / "r1" / "run_report.json").unlink()
+    rep = run(opts(git_repo, tmp_path, from_stage="render"), load_config(), provider=FakeProvider([]),
+              engine=SilenceEngine(0.4), preflight=False)
+    assert rep.status == "ok", rep.failure
+    assert set(rep.stage_seconds) == {"render", "compose"}
+
+
+def test_resume_with_unparsable_prior_report_still_works(git_repo, tmp_path):
+    run(opts(git_repo, tmp_path), load_config(), provider=FakeProvider([submit()]),
+        engine=SilenceEngine(0.4), preflight=False)
+    (tmp_path / "ws" / "r1" / "run_report.json").write_text("{not json")
+    rep = run(opts(git_repo, tmp_path, from_stage="render"), load_config(), provider=FakeProvider([]),
+              engine=SilenceEngine(0.4), preflight=False)
+    assert rep.status == "ok", rep.failure
