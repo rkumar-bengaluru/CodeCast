@@ -18,7 +18,7 @@ class TextSpan(_Strict):
     file: str
     start_line: int
     end_line: int
-    text: str
+    text: str | None = None
 
 
 class JsonSpan(_Strict):
@@ -26,7 +26,7 @@ class JsonSpan(_Strict):
     id: str
     file: str
     pointer: str
-    value: Any
+    value: Any = None  # omitted (see model_fields_set) means "tool fills it"
 
 
 class ImageRef(_Strict):

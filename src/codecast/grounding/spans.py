@@ -70,6 +70,18 @@ def dumps_decimal(value: Any) -> str:
     return json.dumps(str(value))
 
 
+def _json_safe(value: Any) -> Any:
+    """Resolved (Decimal-bearing) JSON as plain Python values that round-trip through values_equal."""
+    if isinstance(value, Decimal):
+        return int(value) if value == value.to_integral_value() and "." not in str(value) \
+            and "E" not in str(value).upper() else float(value)
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    return value
+
+
 def _is_number(v: Any) -> bool:
     return isinstance(v, (int, float, Decimal)) and not isinstance(v, bool)
 
@@ -171,6 +183,10 @@ def check_sources(sources: list[Source], repomap: RepoMap) -> tuple[list[Issue],
                                      f"lines {src.start_line}-{src.end_line} outside 1-{len(lines)}"))
                 continue
             actual = "\n".join(lines[src.start_line - 1:src.end_line])
+            if src.text is None:
+                index.spans[src.id] = src.model_copy(update={"text": actual})
+                index.texts[src.id] = actual
+                continue
             claimed = src.text.replace("\r\n", "\n")
             # One terminal newline is tolerated, but only if dropping it is what makes the text match:
             # a span ending on a blank line is legitimately "...\n" (lines joined with "\n").
@@ -194,14 +210,19 @@ def check_sources(sources: list[Source], repomap: RepoMap) -> tuple[list[Issue],
             except PointerError as e:
                 issues.append(_issue(i, "JSON_POINTER_UNRESOLVED", f"{src.pointer}: {e}"))
                 continue
+            provided = "value" in src.model_fields_set
             try:
-                equal = values_equal(src.value, resolved)
+                equal = values_equal(src.value, resolved) if provided else True
             except RecursionError:
                 equal = False
             if not equal:
                 issues.append(_issue(i, "JSON_VALUE_MISMATCH",
                                      f"value at {src.pointer} is {_show(resolved)}"))
                 continue
+            if not provided:
+                index.spans[src.id] = src.model_copy(
+                    update={"value": _json_safe(resolved)}, deep=True)
+                index.spans[src.id].model_fields_set.add("value")
             index.values[src.id] = resolved
             index.texts[src.id] = resolved if isinstance(resolved, str) else _show(resolved)
     return issues, index

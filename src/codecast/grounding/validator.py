@@ -196,7 +196,7 @@ def structure_issues(sb: Storyboard) -> list[Issue]:
                 issues.append(Issue(path=path, code="SENTENCE_UNCITED", message="cite at least one source"))
     if not MIN_WORDS <= words <= MAX_WORDS:
         issues.append(Issue(path="scenes", code="WORD_COUNT",
-                            message=f"{words} spoken words; need {MIN_WORDS}-{MAX_WORDS}"))
+                            message=f"{words} spoken words; need {MIN_WORDS}-{MAX_WORDS}; aim for ~125 words"))
     return issues
 
 
@@ -302,7 +302,7 @@ def validate_submission(raw: Any, ctx: ValidationContext) -> ValidationResult:
                                        for err in e.errors()[:20]])
     issues, index = check_sources(sub.sources, ctx.repomap)
     sb = Storyboard(repo_url=ctx.repomap.repo_url, commit_sha=ctx.repomap.commit_sha, title=sub.title,
-                    sources={s.id: s for s in sub.sources}, scenes=sub.scenes, llm=ctx.llm)
+                    sources={s.id: index.spans.get(s.id, s) for s in sub.sources}, scenes=sub.scenes, llm=ctx.llm)
     issues += _reference_issues(sb, index)
     issues += _grounding_issues(sb, index)
     issues += structure_issues(sb)

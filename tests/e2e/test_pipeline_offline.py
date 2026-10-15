@@ -33,6 +33,13 @@ def submit():
     return tool_call("submit_storyboard", {"storyboard": valid_submission()})
 
 
+def submit_variant(n):
+    """Same storyboard with revised narration (a duration revision must change the words)."""
+    raw = valid_submission()
+    raw["scenes"][2]["narration"][0]["text"] += " " + "Truly. " * n
+    return tool_call("submit_storyboard", {"storyboard": raw})
+
+
 def test_happy_path_produces_all_artifacts(git_repo, tmp_path):
     # 130 words * 0.4 s = 52 s speech + 2 gaps + 6 tails ≈ 55.4 s → inside [50, 60]
     rep = run(opts(git_repo, tmp_path), load_config(), provider=FakeProvider([submit()]),
@@ -50,7 +57,7 @@ def test_happy_path_produces_all_artifacts(git_repo, tmp_path):
 
 def test_duration_loop_revises_then_succeeds(git_repo, tmp_path):
     engine = SilenceEngine(0.5)                       # first pass ≈ 69 s → too long
-    provider = FakeProvider([submit(), lambda req: _shorter(engine) or submit()])
+    provider = FakeProvider([submit(), lambda req: _shorter(engine) or submit_variant(1)])
     rep = run(opts(git_repo, tmp_path), load_config(), provider=provider, engine=engine, preflight=False)
     assert rep.status == "ok", rep.failure
     assert rep.validation.duration_rounds == 1
@@ -66,7 +73,7 @@ def test_duration_failure_exit_3_and_existing_output_untouched(git_repo, tmp_pat
     out = tmp_path / "output" / "tiny"
     out.mkdir(parents=True)
     (out / "explainer.mp4").write_bytes(b"committed demo")
-    rep = run(opts(git_repo, tmp_path), load_config(), provider=FakeProvider([submit(), submit(), submit()]),
+    rep = run(opts(git_repo, tmp_path), load_config(), provider=FakeProvider([submit(), submit_variant(1), submit_variant(2)]),
               engine=SilenceEngine(0.6), preflight=False)
     assert rep.exit_code == 3 and rep.validation.duration_rounds == 2
     assert (out / "explainer.mp4").read_bytes() == b"committed demo"

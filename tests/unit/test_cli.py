@@ -31,4 +31,5 @@ def test_bad_config_is_exit_7(tmp_path):
 
 
 def test_from_stage_requires_run_id(tmp_path):
-    assert cli.main(["run", "--repo", "x", "--out", str(tmp_path), "--from-stage", "render"]) == 7
+    assert cli.main(["run", "--repo", "x", "--out", str(tmp_path), "--from-stage", "render",
+                     "--workspace", str(tmp_path / "ws")]) == 7

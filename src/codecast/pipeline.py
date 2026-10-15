@@ -150,7 +150,7 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
                         rep.validation.duration_rounds = round_no
                         feedback = duration_feedback(timeline, sb, target=(lo, hi))
                         agent.transcript.log_event(agent.stats.steps_used, "duration_feedback", json.loads(feedback))
-                        submitter.begin_revision()
+                        submitter.begin_revision(sb)
                         current = "agent"
                         with rb.stage("agent"):
                             try:

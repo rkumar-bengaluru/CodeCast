@@ -89,7 +89,9 @@ def _submit_spec() -> ToolSpec:
     schema = Submission.model_json_schema()
     defs = schema.pop("$defs", {})
     return ToolSpec("submit_storyboard",
-                    "Submit the complete storyboard. Returns 'accepted' or a list of validation errors to fix.",
+                    "Submit the complete storyboard. Returns 'accepted' or a list of validation errors to fix. "
+                    "Cite text by file + start_line + end_line (omit `text`; the tool fills the exact lines). "
+                    "Cite JSON by file + pointer (omit `value`).",
                     {"type": "object", "properties": {"storyboard": schema}, "required": ["storyboard"],
                      "$defs": defs})
 

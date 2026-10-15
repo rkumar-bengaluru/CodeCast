@@ -177,3 +177,33 @@ def test_span_mismatch_message_names_the_lines_the_text_really_is(tiny_repo, sta
                               tiny_repo)
     assert issues[0].code == "SPAN_TEXT_MISMATCH"
     assert f"your text is exactly lines {first}-{last}" in issues[0].message
+
+
+def test_text_span_without_text_is_filled_exactly(tiny_repo):
+    spans = [TextSpan(id="a", file="src/app.py", start_line=1, end_line=2),
+             TextSpan(id="c", file="crlf.txt", start_line=1, end_line=2)]
+    issues, index = check_sources(spans, tiny_repo)
+    assert issues == []
+    assert index.spans["a"].text == 'def main():\n    print("hello")'
+    assert index.spans["c"].text == "alpha 1\nbeta 2"
+    assert index.texts["a"] == index.spans["a"].text
+
+
+def test_text_span_provided_but_wrong_still_mismatches(tiny_repo):
+    issues, _ = check_sources([TextSpan(id="a", file="src/app.py", start_line=1, end_line=2, text="nope")], tiny_repo)
+    assert [i.code for i in issues] == ["SPAN_TEXT_MISMATCH"]
+
+
+def test_json_span_without_value_is_filled(tiny_repo):
+    spans = [JsonSpan(id="f", file="metrics.json", pointer="/models/large@8/f1"),
+             JsonSpan(id="m", file="metrics.json", pointer="/models")]
+    issues, index = check_sources(spans, tiny_repo)
+    assert issues == []
+    assert index.spans["f"].value == 0.7349 and "value" in index.spans["f"].model_fields_set
+    assert values_equal(index.spans["m"].value, index.values["m"])
+    assert index.spans["m"].value["large@8"]["latency_ms"] == 891.2
+
+
+def test_json_span_explicit_null_is_still_compared(tiny_repo):
+    issues, _ = check_sources([JsonSpan(id="f", file="metrics.json", pointer="/models/large@8/f1", value=None)], tiny_repo)
+    assert [i.code for i in issues] == ["JSON_VALUE_MISMATCH"]

@@ -44,6 +44,11 @@ def test_prompt_mentions_catalog_and_rules():
         assert word in p
 
 
+def test_prompt_cites_by_reference_and_forbids_spelling():
+    p = load_director_prompt()
+    assert "omit `text`" in p and "omit `value`" in p and "spell" in p
+
+
 def test_happy_path(tiny_repo):
     agent, provider, _ = make(tiny_repo, [
         tool_call("list_dir", {"path": "."}, "a"),

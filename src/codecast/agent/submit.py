@@ -8,10 +8,17 @@ from typing import Any
 
 from codecast.agent.tools import SubmitOutcome
 from codecast.errors import ValidationFailed
-from codecast.grounding.validator import ValidationContext, validate_submission
-from codecast.models import Storyboard
+from codecast.grounding.validator import ValidationContext, ValidationResult, validate_submission
+from codecast.models import Issue, Storyboard
 
 MAX_FEEDBACK_ERRORS = 60
+
+
+TARGET_WORDS = 125
+
+
+def _narration(sb: Storyboard) -> list[str]:
+    return [s.text for sc in sb.scenes for s in sc.narration]
 
 
 class Submitter:
@@ -22,14 +29,20 @@ class Submitter:
         self.rounds_phase = 0
         self.failures_by_code: Counter[str] = Counter()
         self.accepted: Storyboard | None = None
+        self.previous_narration: list[str] | None = None
 
-    def begin_revision(self) -> None:
+    def begin_revision(self, previous: Storyboard | None = None) -> None:
         self.rounds_phase = 0
+        self.previous_narration = None if previous is None else _narration(previous)
 
     def __call__(self, raw: Any) -> SubmitOutcome:
         self.rounds_total += 1
         self.rounds_phase += 1
         res = validate_submission(raw, self.ctx)
+        if res.ok and self.previous_narration is not None and _narration(res.storyboard) == self.previous_narration:
+            res = ValidationResult(None, [Issue(
+                path="scenes", code="NARRATION_UNCHANGED",
+                message=f"duration revision must change the narration; target ~{TARGET_WORDS} words")])
         if res.ok:
             self.accepted = res.storyboard
             return SubmitOutcome(True, res.storyboard, "accepted")
