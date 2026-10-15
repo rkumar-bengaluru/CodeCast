@@ -15,7 +15,7 @@ from codecast.grounding.numbers import (
 )
 from codecast.grounding.spans import SourceIndex, check_sources, format_cell
 from codecast.models import (
-    BulletsScene, CellRef, CodeScene, DiagramScene, ImageScene, Issue, MetricsTableScene,
+    BulletsScene, CellRef, CodeScene, DiagramScene, ImageScene, Issue, JsonSpan, MetricsTableScene,
     OutroScene, RepoMap, Storyboard, Submission, TerminalScene, TitleScene,
 )
 
@@ -123,23 +123,29 @@ def _ground(text: str, ids: list[str], index: SourceIndex, path: str) -> list[Is
         if claim.kind == "number" and not number_grounded(claim.token, literals):
             issues.append(Issue(path=path, code="UNGROUNDED_NUMBER",
                                 message=f"{claim.token} not found in cited sources {ids}; "
-                                        f"{_holders(claim, index)}"))
+                                        f"{_holders(claim, ids, index, path)}"))
         elif claim.kind == "identifier" and not identifier_grounded(claim.token, texts):
             issues.append(Issue(path=path, code="UNGROUNDED_IDENTIFIER",
                                 message=f"{claim.token} not found (case-sensitive, whole token) "
-                                        f"in cited sources {ids}; {_holders(claim, index)}"))
+                                        f"in cited sources {ids}; {_holders(claim, ids, index, path)}"))
     return issues
 
 
-def _holders(claim, index: SourceIndex) -> str:
-    """Name the declared sources that would ground the claim, so the agent can cite one instead of guessing."""
+def _holders(claim, ids: list[str], index: SourceIndex, path: str) -> str:
+    """Tell the agent how to fix the claim: which declared sources would ground it, and whether it only
+    appears in a cited json source's pointer (a pointer is not citable text)."""
     if claim.kind == "number":
         found = [s for s, t in index.texts.items() if number_grounded(claim.token, source_number_literals(t))]
     else:
         found = [s for s, t in index.texts.items() if identifier_grounded(claim.token, [t])]
+    in_pointer = [s for s in ids if isinstance(index.spans.get(s), JsonSpan) and claim.token in index.spans[s].pointer]
+    note = (f"{claim.token} appears only in the pointer of {', '.join(repr(s) for s in in_pointer)}, and a "
+            f"pointer is not citable text; " if in_pointer else "")
     if not found:
-        return "no declared source contains it: find a span that literally does, or remove it"
-    return f"declared sources that contain it: {sorted(found)}"
+        return f"{note}no declared source contains it: find a span that literally does, or remove it"
+    where = "this sentence's source_ids" if ".narration[" in path else "a narration sentence of this scene"
+    return (f"{note}declared sources that contain it: {sorted(found)}; add one of {sorted(found)} to {where}, "
+            f"or remove {claim.token}")
 
 
 def _grounding_issues(sb: Storyboard, index: SourceIndex) -> list[Issue]:

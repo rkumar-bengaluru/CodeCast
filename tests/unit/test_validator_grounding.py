@@ -108,3 +108,14 @@ def test_ungrounded_message_without_any_matching_source(tiny_repo):
     res = validate_submission(raw, ctx(tiny_repo))
     bad = [i for i in res.issues if i.code == "UNGROUNDED_IDENTIFIER"]
     assert "no declared source contains it" in bad[0].message
+
+
+def test_ungrounded_message_explains_a_claim_seen_only_in_a_cited_pointer(tiny_repo):
+    raw = valid_submission()
+    raw["scenes"][3]["narration"][0]["text"] = "The large@8 model reaches an F1 score of 0.735 on the held out set."
+    raw["scenes"][3]["narration"][0]["source_ids"] = ["f1"]
+    res = validate_submission(raw, ctx(tiny_repo))
+    bad = [i for i in res.issues if i.path == "scenes[3].narration[0]" and i.code == "UNGROUNDED_IDENTIFIER"]
+    msg = bad[0].message
+    assert "large@8" in msg and "only in the pointer of 'f1'" in msg
+    assert "add one of ['models'] to this sentence's source_ids, or remove large@8" in msg
