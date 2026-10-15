@@ -25,6 +25,11 @@ def _q(path: str) -> str:
     return "'" + str(path).replace("'", "'\\''") + "'"
 
 
+def _entry(path) -> str:
+    """A concat-list entry. ffmpeg resolves relative entries against the list file's folder, so make them absolute."""
+    return _q(str(Path(path).absolute()))
+
+
 def build_filter(base: str, captions: list[CaptionImage], first_caption_input: int = 1) -> str:
     lines = [f"[0:v]{base}[v0]"]
     for k, cap in enumerate(captions):
@@ -36,12 +41,12 @@ def build_filter(base: str, captions: list[CaptionImage], first_caption_input: i
 
 def sequence_list(frames: list[str], duration: float) -> str:
     each = duration / len(frames)
-    out = "".join(f"file {_q(f)}\nduration {each:.6f}\n" for f in frames)
-    return out + f"file {_q(frames[-1])}\n"
+    out = "".join(f"file {_entry(f)}\nduration {each:.6f}\n" for f in frames)
+    return out + f"file {_entry(frames[-1])}\n"
 
 
 def concat_list(paths: list[Path]) -> str:
-    return "".join(f"file {_q(str(p))}\n" for p in paths)
+    return "".join(f"file {_entry(p)}\n" for p in paths)
 
 
 def segment_command(sf: SceneFrames, out_mp4: Path, filter_file: Path, workdir: Path) -> tuple[list[str], str, dict[Path, str]]:

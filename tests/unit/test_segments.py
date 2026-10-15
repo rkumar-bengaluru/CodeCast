@@ -63,6 +63,14 @@ def test_concat_list():
     assert concat_list([Path("/w/a.mp4"), Path("/w/b.mp4")]) == "file '/w/a.mp4'\nfile '/w/b.mp4'\n"
 
 
+def test_lists_make_relative_paths_absolute():
+    # ffmpeg's concat demuxer resolves relative entries against the list file's folder, not the cwd.
+    cwd = Path.cwd()
+    assert concat_list([Path("ws/a.mp4")]) == f"file '{cwd / 'ws/a.mp4'}'\n"
+    assert sequence_list(["ws/a.png"], 2.0) == (
+        f"file '{cwd / 'ws/a.png'}'\nduration 2.000000\nfile '{cwd / 'ws/a.png'}'\n")
+
+
 @pytest.mark.parametrize("rect,expected", [
     ((0, 0, 1920, 1080), (0, 0, 1920, 1080)),
     ((900, 500, 160, 160), (837.7777, 500, 284.4444, 160)),      # widen to 16:9 around centre
