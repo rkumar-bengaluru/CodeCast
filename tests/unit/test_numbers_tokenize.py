@@ -26,12 +26,26 @@ def test_words_to_digits(text, expected):
 
 
 @pytest.mark.parametrize("text,expected", [
+    ("between one and two", "between 1 and 2"),
+    ("one two three", "1 2 3"),
+    ("four and two", "4 and 2"),
+    ("one thousand and five", "1005"),
+    ("twenty thirty", "20 30"),
+    ("two three-line tests", "2 3-line tests"),
+    ("twenty-one and six", "21 and 6"),
+])
+def test_words_to_digits_keeps_separate_numbers(text, expected):
+    assert words_to_digits(text) == expected
+
+
+@pytest.mark.parametrize("text,expected", [
     ("F1 is 0.735.", ["F1", "is", "0.735"]),
     ("We used ViT-B-32 (large@8).", ["We", "used", "ViT-B-32", "large@8"]),
     ("73.5% of 1,234 clips", ["73.5%", "of", "1,234", "clips"]),
     ("3,4 and 1,23456", ["3", "4", "and", "1", "23456"]),
     ("see src/metrics.py:12", ["see", "src/metrics.py", "12"]),
     ("emoji 🎬 and <b>", ["emoji", "and", "b"]),
+    ("a,123 x", ["a", "123", "x"]),
 ])
 def test_split_tokens(text, expected):
     assert split_tokens(text) == expected
