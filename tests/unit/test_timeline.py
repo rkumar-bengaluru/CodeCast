@@ -70,7 +70,7 @@ def test_duration_feedback(tmp_path):
 
 def test_duration_feedback_gives_a_target_word_count(tmp_path):
     sb = storyboard()
-    tl = synthesize_storyboard(sb, SilenceEngine(0.5), tmp_path, gap_s=0.15, tail_s=0.5)
+    tl = synthesize_storyboard(sb, SilenceEngine(0.45), tmp_path, gap_s=0.15, tail_s=0.5)
     data = json.loads(duration_feedback(tl, sb))
     words = data["spoken_words"]
     wps = words / tl.narration_seconds
@@ -78,3 +78,12 @@ def test_duration_feedback_gives_a_target_word_count(tmp_path):
     assert data["target_words"] == target_words
     assert f"from {words} to about {target_words} words" in data["instruction"]
     assert "unchanged narration will fail again" in data["instruction"]
+
+
+def test_duration_feedback_never_targets_below_the_word_minimum(tmp_path):
+    sb = storyboard()  # 130 words; at 0.9 s/word the naive target would be far below 110
+    tl = synthesize_storyboard(sb, SilenceEngine(0.9), tmp_path, gap_s=0.15, tail_s=0.5)
+    data = json.loads(duration_feedback(tl, sb))
+    assert data["target_words"] == 110
+    assert "from 130 to about 110 words" in data["instruction"]
+    assert "Numbers, identifiers" in data["instruction"]
