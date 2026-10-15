@@ -7,7 +7,7 @@ from codecast.grounding.spans import (
     PointerError, check_sources, dumps_decimal, format_cell, load_json_decimal, read_lines,
     resolve_pointer, values_equal,
 )
-from codecast.models import ImageRef, JsonSpan, TextSpan
+from codecast.models import FileEntry, ImageRef, JsonSpan, TextSpan
 
 
 @pytest.mark.parametrize("pointer,expected", [
@@ -146,3 +146,24 @@ def test_span_mismatch_message_shows_first_differing_file_line(tiny_repo):
                                         text="alpha 1\nbeta  2")], tiny_repo)
     assert issues[0].code == "SPAN_TEXT_MISMATCH"
     assert "line 2" in issues[0].message and "'beta 2'" in issues[0].message
+
+
+def _with_blank_lines(repo):
+    (Path(repo.root) / "blank.md").write_text("a\n\nb\n")
+    repo.files.append(FileEntry(path="blank.md", size=5, kind="text"))
+    return repo
+
+
+@pytest.mark.parametrize("text", ["a\n", "a\n\n"])
+def test_span_ending_on_blank_line_matches_with_or_without_terminal_newline(tiny_repo, text):
+    repo = _with_blank_lines(tiny_repo)
+    issues, index = check_sources([TextSpan(id="s", file="blank.md", start_line=1, end_line=2, text=text)], repo)
+    assert issues == []
+    assert index.texts["s"] == "a\n"
+
+
+@pytest.mark.parametrize("text", ["a", "a\n\n\n"])
+def test_span_ending_on_blank_line_still_rejects_wrong_line_count(tiny_repo, text):
+    repo = _with_blank_lines(tiny_repo)
+    issues, _ = check_sources([TextSpan(id="s", file="blank.md", start_line=1, end_line=2, text=text)], repo)
+    assert [i.code for i in issues] == ["SPAN_TEXT_MISMATCH"]

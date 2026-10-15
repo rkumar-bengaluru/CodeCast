@@ -158,7 +158,9 @@ def check_sources(sources: list[Source], repomap: RepoMap) -> tuple[list[Issue],
                 continue
             actual = "\n".join(lines[src.start_line - 1:src.end_line])
             claimed = src.text.replace("\r\n", "\n")
-            if claimed.endswith("\n"):
+            # One terminal newline is tolerated, but only if dropping it is what makes the text match:
+            # a span ending on a blank line is legitimately "...\n" (lines joined with "\n").
+            if claimed != actual and claimed.endswith("\n"):
                 claimed = claimed[:-1]
             if claimed != actual:
                 issues.append(_issue(i, "SPAN_TEXT_MISMATCH",
