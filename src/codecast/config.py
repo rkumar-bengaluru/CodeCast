@@ -94,6 +94,9 @@ def load_config(path: Path | None = None) -> Config:
             raise ConfigError(f"invalid YAML in {path}: {e}") from e
         if not isinstance(user, dict):
             raise ConfigError(f"config root must be a mapping: {path}")
+        for section, default_value in data.items():
+            if isinstance(default_value, dict) and section in user and not isinstance(user[section], dict):
+                raise ConfigError(f"config section {section!r} must be a mapping in {path}")
         data = _deep_merge(data, user)
 
     user_llm = user.get("llm") or {}

@@ -60,3 +60,18 @@ def test_pricing_parsed(tmp_path):
         "pricing:\n  m1:\n    input_per_mtok: 3\n    output_per_mtok: 15\n"
         "    cache_read_per_mtok: 0.3\n    cache_write_per_mtok: 3.75\n")))
     assert cfg.pricing["m1"].output_per_mtok == 15
+
+
+def test_non_mapping_llm_section_is_config_error(tmp_path):
+    with pytest.raises(ConfigError, match="llm"):
+        load_config(write(tmp_path, "llm: foo\n"))
+
+
+def test_null_llm_section_is_config_error(tmp_path):
+    with pytest.raises(ConfigError, match="llm"):
+        load_config(write(tmp_path, "llm: null\n"))
+
+
+def test_list_voice_section_is_config_error(tmp_path):
+    with pytest.raises(ConfigError, match="voice"):
+        load_config(write(tmp_path, "voice: [1]\n"))
