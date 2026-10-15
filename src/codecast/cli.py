@@ -32,6 +32,7 @@ def _parser() -> argparse.ArgumentParser:
     e = sub.add_parser("eval", help="evaluate a generated output directory")
     e.add_argument("out_dir", type=Path)
     e.add_argument("--no-reclone", action="store_true", help="skip the independent re-check against a fresh clone")
+    e.add_argument("--source", help="clone the re-check from this path or URL instead of repo_url")
     return p
 
 
@@ -51,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.cmd == "eval":
             from codecast.eval import evaluate
-            return evaluate(args.out_dir, reclone=not args.no_reclone)
+            return evaluate(args.out_dir, reclone=not args.no_reclone, source=args.source)
         opts = RunOptions(repo=args.repo, out_dir=args.out, workspace=args.workspace, max_steps=args.max_steps,
                           allow_network_tts=args.allow_network_tts, from_stage=args.from_stage, run_id=args.run_id)
         report = pipeline_run(opts, cfg)
