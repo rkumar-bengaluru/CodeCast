@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import fnmatch
+import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
 from pydantic import ValidationError
 
 from codecast.grounding.numbers import (
-    extract_claims, identifier_grounded, number_grounded, source_number_literals,
+    decimals as literal_decimals, extract_claims, identifier_grounded, number_grounded,
+    source_number_literals,
 )
-from codecast.grounding.spans import SourceIndex, check_sources
+from codecast.grounding.spans import SourceIndex, check_sources, format_cell
 from codecast.models import (
     BulletsScene, CellRef, CodeScene, DiagramScene, ImageScene, Issue, MetricsTableScene,
     OutroScene, RepoMap, Storyboard, Submission, TerminalScene, TitleScene,
@@ -77,9 +80,6 @@ def on_screen_texts(scene) -> list[tuple[str, str]]:
     return []
 
 
-_EXPECTED_KIND = {"span_id": "text", "image_id": "image", "cell": "json", "command": "text", "output": "text"}
-
-
 def _reference_issues(sb: Storyboard, index: SourceIndex) -> list[Issue]:
     issues: list[Issue] = []
 
@@ -141,12 +141,142 @@ def _grounding_issues(sb: Storyboard, index: SourceIndex) -> list[Issue]:
     return issues
 
 
+MIN_SCENES, MAX_SCENES = 4, 8
+MIN_WORDS, MAX_WORDS = 110, 170
+MAX_SENTENCE_WORDS = 30
+MAX_BULLETS_TOTAL = 12
+_MULTI_SENTENCE = re.compile(r"[.!?]\s+\S")
+
+
+def output_allowed(path: str, patterns: list[str]) -> bool:
+    for p in patterns:
+        if fnmatch.fnmatch(path, p):
+            return True
+        if p.startswith("**/") and fnmatch.fnmatch(path, p[3:]):
+            return True
+    return False
+
+
 def structure_issues(sb: Storyboard) -> list[Issue]:
+    issues: list[Issue] = []
+    n = len(sb.scenes)
+    if not MIN_SCENES <= n <= MAX_SCENES:
+        issues.append(Issue(path="scenes", code="SCENE_COUNT", message=f"{n} scenes; need {MIN_SCENES}-{MAX_SCENES}"))
+    if n and sb.scenes[0].type != "title":
+        issues.append(Issue(path="scenes[0]", code="FIRST_SCENE", message="first scene must be 'title'"))
+    if n and sb.scenes[-1].type != "outro":
+        issues.append(Issue(path=f"scenes[{n - 1}]", code="LAST_SCENE", message="last scene must be 'outro'"))
+    words = 0
+    for i, sc in enumerate(sb.scenes):
+        if not sc.narration:
+            issues.append(Issue(path=f"scenes[{i}].narration", code="NARRATION_EMPTY",
+                                message="every scene needs at least one narration sentence"))
+        for j, sent in enumerate(sc.narration):
+            path = f"scenes[{i}].narration[{j}]"
+            count = len(sent.text.split())
+            words += count
+            if count == 0:
+                issues.append(Issue(path=path, code="EMPTY_SENTENCE", message="sentence text is empty"))
+            if count > MAX_SENTENCE_WORDS:
+                issues.append(Issue(path=path, code="SENTENCE_TOO_LONG",
+                                    message=f"{count} words; max {MAX_SENTENCE_WORDS}"))
+            if not sent.source_ids:
+                issues.append(Issue(path=path, code="SENTENCE_UNCITED", message="cite at least one source"))
+    if not MIN_WORDS <= words <= MAX_WORDS:
+        issues.append(Issue(path="scenes", code="WORD_COUNT",
+                            message=f"{words} spoken words; need {MIN_WORDS}-{MAX_WORDS}"))
+    return issues
+
+
+def _rect_ok(r) -> bool:
+    x, y, w, h = r
+    return 0 <= x <= 1 and 0 <= y <= 1 and w > 0 and h > 0 and x + w <= 1 + 1e-9 and y + h <= 1 + 1e-9
+
+
+def _too_long(path: str, text: str, limit: int) -> list[Issue]:
+    if len(text) > limit:
+        return [Issue(path=path, code="TEXT_TOO_LONG", message=f"{len(text)} chars; max {limit}")]
     return []
 
 
 def scene_rule_issues(sb: Storyboard, index: SourceIndex, ctx: ValidationContext) -> list[Issue]:
-    return []
+    issues: list[Issue] = []
+    bullets_total = 0
+    for i, sc in enumerate(sb.scenes):
+        p = f"scenes[{i}]"
+        if isinstance(sc, TitleScene):
+            issues += _too_long(f"{p}.heading", sc.heading, 60)
+            texts = [("heading", sc.heading)]
+            if sc.subheading is not None:
+                issues += _too_long(f"{p}.subheading", sc.subheading, 90)
+                texts.append(("subheading", sc.subheading))
+            for suffix, text in texts:
+                if _MULTI_SENTENCE.search(text):
+                    issues.append(Issue(path=f"{p}.{suffix}", code="NOT_ONE_SENTENCE", message="use one sentence"))
+        elif isinstance(sc, BulletsScene):
+            bullets_total += len(sc.items)
+            if len(sc.items) > 5:
+                issues.append(Issue(path=f"{p}.items", code="TOO_MANY_ITEMS", message=f"{len(sc.items)} items; max 5"))
+            for k, item in enumerate(sc.items):
+                issues += _too_long(f"{p}.items[{k}]", item, 60)
+        elif isinstance(sc, CodeScene):
+            span = sb.sources.get(sc.span_id)
+            if span is not None and span.kind == "text":
+                n_lines = span.end_line - span.start_line + 1
+                if n_lines > 18:
+                    issues.append(Issue(path=f"{p}.span_id", code="CODE_TOO_LONG", message=f"{n_lines} lines; max 18"))
+                bad = [h for h in sc.highlight_lines if not span.start_line <= h <= span.end_line]
+                if bad:
+                    issues.append(Issue(path=f"{p}.highlight_lines", code="HIGHLIGHT_OUT_OF_RANGE",
+                                        message=f"{bad} outside {span.start_line}-{span.end_line}"))
+        elif isinstance(sc, ImageScene):
+            rects = [(f"{p}.highlights[{k}]", r) for k, r in enumerate(sc.highlights)]
+            if sc.motion.kind == "ken_burns":
+                rects += [(f"{p}.motion.from_rect", sc.motion.from_rect), (f"{p}.motion.to_rect", sc.motion.to_rect)]
+            for path, r in rects:
+                if not _rect_ok(r):
+                    issues.append(Issue(path=path, code="RECT_OUT_OF_BOUNDS",
+                                        message="rect must be [x,y,w,h] in 0-1 with x+w<=1, y+h<=1, w,h>0"))
+        elif isinstance(sc, MetricsTableScene):
+            for r, row in enumerate(sc.rows):
+                if len(row) != len(sc.columns):
+                    issues.append(Issue(path=f"{p}.rows[{r}]", code="TABLE_SHAPE",
+                                        message=f"{len(row)} cells; table has {len(sc.columns)} columns"))
+                for c, cell in enumerate(row):
+                    if not isinstance(cell, CellRef) or cell.span_id not in index.values:
+                        continue
+                    value = index.values[cell.span_id]
+                    rendered = format_cell(value, cell.decimals)
+                    cp = f"{p}.rows[{r}][{c}]"
+                    if rendered is None:
+                        issues.append(Issue(path=cp, code="CELL_NOT_NUMERIC", message="cell span must resolve to a number"))
+                        continue
+                    literal = str(value)
+                    if cell.decimals is not None and (cell.decimals < 0 or cell.decimals >= literal_decimals(literal)
+                                                      or not number_grounded(rendered, [literal])):
+                        issues.append(Issue(path=cp, code="CELL_UNGROUNDED",
+                                            message=f"{literal} rounded to {cell.decimals} decimals is not allowed"))
+        elif isinstance(sc, DiagramScene):
+            if ctx.mermaid_check is not None:
+                err = ctx.mermaid_check(sc.mermaid)
+                if err:
+                    issues.append(Issue(path=f"{p}.mermaid", code="MERMAID_SYNTAX", message=err))
+        elif isinstance(sc, TerminalScene):
+            if not sc.command_span_ids:
+                issues.append(Issue(path=f"{p}.command_span_ids", code="TERMINAL_NO_COMMANDS",
+                                    message="cite at least one command span"))
+            out = sb.sources.get(sc.output_span_id) if sc.output_span_id else None
+            if out is not None and not output_allowed(out.file, ctx.output_allowlist):
+                issues.append(Issue(path=f"{p}.output_span_id", code="OUTPUT_NOT_ALLOWED",
+                                    message=f"{out.file} is not an allowed output file {ctx.output_allowlist}"))
+        elif isinstance(sc, OutroScene):
+            if sc.repo_url != ctx.repomap.repo_url:
+                issues.append(Issue(path=f"{p}.repo_url", code="REPO_URL_MISMATCH",
+                                    message=f"must be exactly {ctx.repomap.repo_url}"))
+    if bullets_total > MAX_BULLETS_TOTAL:
+        issues.append(Issue(path="scenes", code="TOO_MANY_BULLETS_TOTAL",
+                            message=f"{bullets_total} bullet items; max {MAX_BULLETS_TOTAL} per video"))
+    return issues
 
 
 def validate_submission(raw: Any, ctx: ValidationContext) -> ValidationResult:
