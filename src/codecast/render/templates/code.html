@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block head %}<style>{{ code_css | safe }}</style>{% endblock %}
+{% block content %}
+<div class="stage">
+  <div class="kicker">{{ kicker }}</div><div class="counter">{{ scene_number }} / {{ scene_count }}</div>
+  <div class="code-wrap">
+    <div class="file">{{ file }} · lines {{ start }}–{{ end }}</div>
+    {{ code_html | safe }}
+  </div>
+</div>
+{% endblock %}
