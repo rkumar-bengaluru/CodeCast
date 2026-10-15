@@ -82,7 +82,6 @@ def test_registry_missing_key_is_config_error():
         create_provider(llm_cfg())
 
 
-@pytest.mark.skip(reason="adapters land in Tasks 11-12")
 def test_registry_builds_adapters_without_network(monkeypatch):
     monkeypatch.setenv("CODECAST_TEST_KEY", "k")
     p = create_provider(llm_cfg())
@@ -91,7 +90,6 @@ def test_registry_builds_adapters_without_network(monkeypatch):
     assert p.name == "openai"
 
 
-@pytest.mark.skip(reason="adapters land in Tasks 11-12")
 def test_registry_require_key_false():
     p = create_provider(llm_cfg(), require_key=False)
     assert p.name == "anthropic"
