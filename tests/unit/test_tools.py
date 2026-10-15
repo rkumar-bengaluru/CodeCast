@@ -63,8 +63,39 @@ def test_read_file_caps_bytes(tiny_repo):
     tiny_repo.files.append(FileEntry(path="wide.txt", size=1, kind="text"))
     _, text = run(box(tiny_repo), "read_file", path="wide.txt")
     data = json.loads(text)
-    assert len(text.encode()) <= 33 * 1024
+    assert len(text.encode()) <= 32 * 1024
     assert data["truncated"] and data["next_start_line"] == len(data["lines"]) + 1
+
+
+def test_read_file_caps_escape_heavy_lines(tiny_repo):
+    root = Path(tiny_repo.root)
+    (root / "esc.txt").write_text("\n".join('"\\\\\\"' * 100 for _ in range(200)) + "\n")
+    tiny_repo.files.append(FileEntry(path="esc.txt", size=1, kind="text"))
+    _, text = run(box(tiny_repo), "read_file", path="esc.txt")
+    data = json.loads(text)
+    assert len(text.encode()) <= 32 * 1024
+    assert data["truncated"] is True
+    assert data["next_start_line"] == int(data["lines"][-1].split("|", 1)[0]) + 1
+
+
+def test_read_file_single_huge_quote_line_fits(tiny_repo):
+    root = Path(tiny_repo.root)
+    (root / "huge.txt").write_text('"' * 60000 + "\n")
+    tiny_repo.files.append(FileEntry(path="huge.txt", size=1, kind="text"))
+    ex, text = run(box(tiny_repo), "read_file", path="huge.txt")
+    data = json.loads(text)
+    assert len(text.encode()) <= 32 * 1024
+    assert data["lines"][0].endswith("[line truncated]") and data["truncated"] is True
+
+
+def test_grep_output_capped(tiny_repo):
+    root = Path(tiny_repo.root)
+    (root / "many.txt").write_text("\n".join('"\\' * 100 for _ in range(400)) + "\n")
+    tiny_repo.files.append(FileEntry(path="many.txt", size=1, kind="text"))
+    _, text = run(box(tiny_repo), "grep", pattern=r'"', max_results=200)
+    data = json.loads(text)
+    assert len(text.encode()) <= 32 * 1024
+    assert data["truncated"] is True and len(data["matches"]) < 200
 
 
 @pytest.mark.parametrize("args,needle", [

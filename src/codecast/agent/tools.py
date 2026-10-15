@@ -39,6 +39,30 @@ class ToolArgError(Exception):
     pass
 
 
+# Serialized line budget for read_file; the rest of the envelope fits in the remaining 1 KiB.
+_LINES_BUDGET = MAX_RESULT_BYTES - 1024
+_TRUNC_MARK = " …[line truncated]"
+
+
+def _json_size(text: str) -> int:
+    """Bytes this string occupies as a JSON array element (quotes, escapes, ', ' separator)."""
+    return len(json.dumps(text, ensure_ascii=False).encode()) + 2
+
+
+def _fit_line(text: str, budget: int) -> str:
+    """Shortest-prefix cut so the JSON-encoded line plus marker fits the budget."""
+    if _json_size(text) <= budget:
+        return text
+    lo, hi = 0, len(text)
+    while lo < hi:  # largest prefix length whose encoded size fits
+        mid = (lo + hi + 1) // 2
+        if _json_size(text[:mid] + _TRUNC_MARK) <= budget:
+            lo = mid
+        else:
+            hi = mid - 1
+    return text[:lo] + _TRUNC_MARK
+
+
 def _obj(properties: dict, required: list[str]) -> dict:
     return {"type": "object", "properties": properties, "required": required, "additionalProperties": False}
 
@@ -168,22 +192,29 @@ class ToolBox:
         total = len(lines)
         if total and start_line > total:
             raise ValueError(f"start_line {start_line} is past the end ({total} lines)")
-        out, size, i = [], 0, start_line - 1
+        out, size, i, cut = [], 0, start_line - 1, False
         while i < total and len(out) < min(max_lines, 400):
             line = f"{i + 1}| {lines[i]}"
-            n = len(line.encode()) + 1
-            if size + n > MAX_RESULT_BYTES - 512:
+            n = _json_size(line)
+            if size + n > _LINES_BUDGET:
                 if not out:
-                    out.append(line.encode()[: MAX_RESULT_BYTES - 1024].decode(errors="ignore") + " …[line truncated]")
+                    out.append(_fit_line(line, _LINES_BUDGET))
+                    cut = True
                     i += 1
                 break
             out.append(line)
             size += n
             i += 1
-        truncated = i < total
-        return self._ok(call_id, json.dumps({"path": rel, "total_lines": total, "lines": out,
-                                             "truncated": truncated, "next_start_line": i + 1 if truncated else None},
-                                            ensure_ascii=False))
+        truncated = i < total or cut
+        payload = {"path": rel, "total_lines": total, "lines": out,
+                   "truncated": truncated, "next_start_line": i + 1 if truncated else None}
+        text = json.dumps(payload, ensure_ascii=False)
+        while len(text.encode()) > MAX_RESULT_BYTES and payload["lines"]:
+            payload["lines"].pop()
+            payload["truncated"] = True
+            payload["next_start_line"] = len(payload["lines"]) + start_line
+            text = json.dumps(payload, ensure_ascii=False)
+        return self._ok(call_id, text)
 
     def _t_grep(self, call_id: str, pattern: str, path_glob: str | None = None, max_results: int = 50) -> ToolExecution:
         rx = re.compile(pattern)
@@ -199,7 +230,13 @@ class ToolBox:
                     matches.append({"file": f.path, "line": n, "text": line[:200]})
             if truncated:
                 break
-        return self._ok(call_id, json.dumps({"matches": matches, "truncated": truncated}, ensure_ascii=False))
+        payload = {"matches": matches, "truncated": truncated}
+        text = json.dumps(payload, ensure_ascii=False)
+        while len(text.encode()) > MAX_RESULT_BYTES and payload["matches"]:
+            payload["matches"].pop()
+            payload["truncated"] = True
+            text = json.dumps(payload, ensure_ascii=False)
+        return self._ok(call_id, text)
 
     def _t_read_json(self, call_id: str, path: str, pointer: str = "") -> ToolExecution:
         rel, full = self._entry(path, "text")
