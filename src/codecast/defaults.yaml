@@ -1,0 +1,25 @@
+llm:
+  provider: anthropic
+  model: claude-sonnet-5-5
+  api_key_env: ANTHROPIC_API_KEY
+  base_url: null
+  temperature: 0.3
+  max_tokens: 4096
+  timeout_s: 120
+  extended_thinking: false
+  caps: {}
+agent:
+  max_steps: null
+  max_total_tokens: 600000
+  wall_clock_s: 240
+  revision_steps: 15
+voice:
+  piper_voice: en_US-lessac-medium
+  voices_dir: ~/.cache/codecast/voices
+  say_voice: Samantha
+  edge_voice: en-US-AriaNeural
+  gap_s: 0.15
+  tail_s: 0.5
+render:
+  terminal_output_allowlist: ["*.log", "*.txt", "*.out", "logs/**", "**/output*"]
+pricing: {}
