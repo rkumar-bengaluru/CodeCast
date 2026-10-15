@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from decimal import ROUND_HALF_UP, Decimal, localcontext
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, localcontext
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +29,8 @@ def resolve_pointer(doc: Any, pointer: str) -> Any:
                 raise PointerError(f"key {tok!r} not found")
             cur = cur[tok]
         elif isinstance(cur, list):
-            if not re.fullmatch(r"0|[1-9]\d*", tok) or int(tok) >= len(cur):
+            # Bounded digits keep int() far below the int-string conversion limit.
+            if not re.fullmatch(r"0|[1-9]\d{0,17}", tok) or int(tok) >= len(cur):
                 raise PointerError(f"invalid array index {tok!r}")
             cur = cur[int(tok)]
         else:
@@ -73,9 +74,25 @@ def _is_number(v: Any) -> bool:
     return isinstance(v, (int, float, Decimal)) and not isinstance(v, bool)
 
 
+def _num_equal(a: Any, b: Any) -> bool:
+    if isinstance(a, int) and isinstance(b, int):
+        return a == b
+    try:
+        return Decimal(str(a)) == Decimal(str(b))
+    except (ValueError, InvalidOperation):
+        return False
+
+
+def _show(value: Any) -> str:
+    try:
+        return dumps_decimal(value)
+    except (RecursionError, ValueError):
+        return "<value too large to show>"
+
+
 def values_equal(agent_value: Any, resolved: Any) -> bool:
     if _is_number(resolved):
-        return _is_number(agent_value) and Decimal(str(agent_value)) == Decimal(str(resolved))
+        return _is_number(agent_value) and _num_equal(agent_value, resolved)
     if isinstance(resolved, list):
         return (isinstance(agent_value, list) and len(agent_value) == len(resolved)
                 and all(values_equal(a, r) for a, r in zip(agent_value, resolved)))
@@ -119,7 +136,11 @@ def check_sources(sources: list[Source], repomap: RepoMap) -> tuple[list[Issue],
             continue
         path = root / src.file
         if isinstance(src, TextSpan):
-            lines = read_lines(path)
+            try:
+                lines = read_lines(path)
+            except OSError as e:
+                issues.append(_issue(i, "SPAN_FILE_MISSING", f"{src.file} could not be read: {e}"))
+                continue
             if not (1 <= src.start_line <= src.end_line <= len(lines)):
                 issues.append(_issue(i, "SPAN_RANGE_INVALID",
                                      f"lines {src.start_line}-{src.end_line} outside 1-{len(lines)}"))
@@ -137,29 +158,40 @@ def check_sources(sources: list[Source], repomap: RepoMap) -> tuple[list[Issue],
         elif isinstance(src, JsonSpan):
             try:
                 doc = load_json_decimal(path)
-            except (ValueError, UnicodeDecodeError) as e:
-                issues.append(_issue(i, "JSON_PARSE_ERROR", f"{src.file} is not valid JSON: {e}"))
+            except (ValueError, UnicodeDecodeError, RecursionError, OSError) as e:
+                issues.append(_issue(i, "JSON_PARSE_ERROR", f"{src.file} could not be parsed as JSON: {e}"))
                 continue
             try:
                 resolved = resolve_pointer(doc, src.pointer)
             except PointerError as e:
                 issues.append(_issue(i, "JSON_POINTER_UNRESOLVED", f"{src.pointer}: {e}"))
                 continue
-            if not values_equal(src.value, resolved):
+            try:
+                equal = values_equal(src.value, resolved)
+            except RecursionError:
+                equal = False
+            if not equal:
                 issues.append(_issue(i, "JSON_VALUE_MISMATCH",
-                                     f"value at {src.pointer} is {dumps_decimal(resolved)}"))
+                                     f"value at {src.pointer} is {_show(resolved)}"))
                 continue
             index.values[src.id] = resolved
-            index.texts[src.id] = resolved if isinstance(resolved, str) else dumps_decimal(resolved)
+            index.texts[src.id] = resolved if isinstance(resolved, str) else _show(resolved)
     return issues, index
 
 
 def format_cell(value: Any, decimals: int | None) -> str | None:
     if not (isinstance(value, (int, Decimal)) and not isinstance(value, bool)):
         return None
-    d = Decimal(str(value))
+    if decimals is not None and decimals < 0:
+        return None
+    d = Decimal(value)  # Decimal(int) has no digit limit, unlike str(int)
+    if not d.is_finite():
+        return None
     if decimals is None:
-        return str(value)
+        try:
+            return str(value)
+        except ValueError:  # int beyond the int-string conversion limit
+            return None
     with localcontext() as ctx:
         # Size precision to the operand so wide values cannot raise InvalidOperation.
         ctx.prec = max(28, d.adjusted() + 1 + decimals + 10)

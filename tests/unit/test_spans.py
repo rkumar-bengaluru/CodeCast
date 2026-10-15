@@ -96,3 +96,39 @@ def test_check_sources_reports_every_failure(tiny_repo):
 ])
 def test_format_cell(value, dec, expected):
     assert format_cell(value, dec) == expected
+
+
+def test_deep_nested_json_is_a_parse_error_not_a_crash(tiny_repo):
+    from codecast.models import FileEntry
+    root = Path(tiny_repo.root)
+    (root / "deep.json").write_text("[" * 200000)
+    tiny_repo.files.append(FileEntry(path="deep.json", size=200000, kind="text"))
+    issues, _ = check_sources([JsonSpan(id="d", file="deep.json", pointer="", value=1)], tiny_repo)
+    assert [i.code for i in issues] == ["JSON_PARSE_ERROR"]
+
+
+def test_span_file_deleted_after_repomap_is_file_missing(tiny_repo):
+    (Path(tiny_repo.root) / "README.md").unlink()
+    issues, _ = check_sources(
+        [TextSpan(id="r", file="README.md", start_line=1, end_line=1, text="# Tiny")], tiny_repo)
+    assert [i.code for i in issues] == ["SPAN_FILE_MISSING"]
+
+
+def test_resolve_pointer_huge_index_is_pointer_error():
+    with pytest.raises(PointerError):
+        resolve_pointer([1], "/" + "9" * 5000)
+
+
+def test_values_equal_huge_int_does_not_raise():
+    assert values_equal(10**5000, 10**5000)
+    assert not values_equal(10**5000, 1)
+
+
+def test_format_cell_non_finite_and_negative_decimals():
+    assert format_cell(Decimal("Infinity"), 2) is None
+    assert format_cell(Decimal("NaN"), 2) is None
+    assert format_cell(Decimal("1.5"), -1) is None
+
+
+def test_format_cell_wide_value_regression():
+    assert format_cell(Decimal("1e30"), 3) == "1000000000000000000000000000000.000"
