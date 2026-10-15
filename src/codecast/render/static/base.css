@@ -33,5 +33,24 @@ ul.bullets li::before { content: ""; position: absolute; left: 0; top: 22px; wid
 
 .cta { font-size: 60px; font-weight: 600; margin-top: 24px; }
 
+.img-wrap { position: absolute; left: 80px; top: 56px; width: 1760px; height: 844px; }
+.img-wrap img { width: 100%; height: 100%; object-fit: contain; }
+.img-label { position: absolute; left: 80px; top: 18px; font-family: "JetBrains Mono", monospace; font-size: 24px; color: var(--muted); }
+.box { position: absolute; border: 6px solid var(--hl); border-radius: 10px; }
+
+table.metrics { border-collapse: collapse; margin-top: 12px; }
+table.metrics th { font-size: 34px; color: var(--muted); text-align: left; font-weight: 600; padding: 18px 48px 18px 0; border-bottom: 3px solid #30363d; }
+table.metrics td { font-size: 48px; padding: 22px 48px 22px 0; border-bottom: 1px solid #21262d; }
+table.metrics td.num { font-family: "JetBrains Mono", monospace; color: var(--good); text-align: right; }
+
+.diagram { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.diagram svg { max-width: 1680px; max-height: 760px; height: auto; }
+
+.term { background: #010409; border: 2px solid #30363d; border-radius: 18px; padding: 36px 44px; flex: 1;
+  font-family: "JetBrains Mono", monospace; font-size: 34px; line-height: 1.5; overflow: hidden; }
+.term .dots { margin-bottom: 24px; } .term .dots i { display: inline-block; width: 18px; height: 18px; border-radius: 50%; margin-right: 10px; background: #30363d; }
+.term .cmd { white-space: pre-wrap; } .term .prompt { color: var(--good); }
+.term .out { color: var(--muted); white-space: pre-wrap; margin-top: 18px; }
+
 .cap span { display: inline-block; max-width: 1600px; text-align: center; font-size: 40px; line-height: 1.28;
   font-weight: 600; color: #fff; background: rgba(0, 0, 0, .74); padding: 10px 28px; border-radius: 12px; }

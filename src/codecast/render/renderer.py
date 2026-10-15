@@ -20,6 +20,8 @@ from codecast.models import (
     Box, BulletsScene, CellRef, CodeScene, DiagramScene, ImageScene, MetricsTableScene, OutroScene,
     Storyboard, TerminalScene, TextSpan, TitleScene, scene_id,
 )
+from codecast.models import CaptionImage, SceneFrames
+from codecast.voice.timeline import Timeline
 
 PKG = Path(str(resources.files("codecast.render")))
 TEMPLATES = PKG / "templates"
@@ -190,3 +192,44 @@ class Renderer:
         info = self._shoot(tpl.render(**ctx), png, repo_root=repo_root, scale=scale)
         box = Box(**info["image_box"]) if info.get("image_box") else None
         return RenderedScene(frames=[str(png)], image_box=box)
+
+    def render_caption(self, text: str, out_png: Path) -> None:
+        html = _env.get_template("caption.html").render(static=STATIC_URL, text=text)
+        self._shoot(html, out_png, height=CAPTION_HEIGHT, transparent=True)
+
+    def mermaid_check(self, code: str) -> str | None:
+        if self._check_page is None:
+            self._check_ctx = self._browser.new_context()
+            page = '<!doctype html><html><body><script src="/static/mermaid.min.js"></script></body></html>'
+            self._check_ctx.route("**/*", _route_handler({"/check.html": page}, None))
+            self._check_page = self._check_ctx.new_page()
+            self._check_page.goto(f"{ORIGIN}/check.html")
+            self._check_page.wait_for_function("() => window.mermaid !== undefined", timeout=20_000)
+            self._check_page.evaluate("() => mermaid.initialize({ startOnLoad: false })")
+        return self._check_page.evaluate(
+            "async (code) => { try { await mermaid.parse(code); return null; }"
+            " catch (e) { return String((e && e.message) || e); } }", code)
+
+
+def render_all(sb: Storyboard, timeline: Timeline, repo_root: Path, out_dir: Path, renderer: Renderer) -> list[SceneFrames]:
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    result = []
+    for i, (sc, timing) in enumerate(zip(sb.scenes, timeline.scenes)):
+        rendered = renderer.render_scene(sb, i, Path(repo_root), out_dir)
+        captions = []
+        for k, cue in enumerate(timing.cues):
+            png = out_dir / f"{timing.scene_id}_cap{k:02d}.png"
+            renderer.render_caption(cue.text, png)
+            captions.append(CaptionImage(path=str(png), start=round(cue.start - timing.start, 3),
+                                         end=round(cue.end - timing.start, 3)))
+        if isinstance(sc, ImageScene) and sc.motion.kind == "ken_burns":
+            motion, kb = "ken_burns", sc.motion
+        elif isinstance(sc, TerminalScene):
+            motion, kb = "sequence", None
+        else:
+            motion, kb = "static", None
+        result.append(SceneFrames(scene_id=timing.scene_id, frames=rendered.frames, motion=motion,
+                                  duration=timing.duration, image_box=rendered.image_box, ken_burns=kb,
+                                  captions=captions))
+    return result
