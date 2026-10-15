@@ -113,6 +113,17 @@ def _issue(i: int, code: str, message: str) -> Issue:
     return Issue(path=f"sources[{i}]", code=code, message=message)
 
 
+def _mismatch_hint(claimed: str, actual: str, start_line: int) -> str:
+    """Say where claimed span text first departs from the file, so the agent can fix it in one round."""
+    got, want = claimed.split("\n"), actual.split("\n")
+    if len(got) != len(want):
+        return (f"your text has {len(got)} line(s); lines {start_line}-{start_line + len(want) - 1} "
+                f"are {len(want)} lines")
+    k = next(k for k, (a, b) in enumerate(zip(got, want)) if a != b)
+    shown = want[k] if len(want[k]) <= 160 else want[k][:160] + "..."
+    return f"first difference at line {start_line + k}: the file has {shown!r}, keep its leading whitespace"
+
+
 def check_sources(sources: list[Source], repomap: RepoMap) -> tuple[list[Issue], SourceIndex]:
     root = Path(repomap.root)
     issues: list[Issue] = []
@@ -151,8 +162,9 @@ def check_sources(sources: list[Source], repomap: RepoMap) -> tuple[list[Issue],
                 claimed = claimed[:-1]
             if claimed != actual:
                 issues.append(_issue(i, "SPAN_TEXT_MISMATCH",
-                                     f"text differs from {src.file}:{src.start_line}-{src.end_line}; "
-                                     f"copy the lines exactly as read_file shows them (without line numbers)"))
+                                     f"text differs from {src.file}:{src.start_line}-{src.end_line} "
+                                     f"({_mismatch_hint(claimed, actual, src.start_line)}); copy the lines "
+                                     f"exactly as read_file shows them (without line numbers)"))
                 continue
             index.texts[src.id] = actual
         elif isinstance(src, JsonSpan):

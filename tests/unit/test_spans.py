@@ -132,3 +132,17 @@ def test_format_cell_non_finite_and_negative_decimals():
 
 def test_format_cell_wide_value_regression():
     assert format_cell(Decimal("1e30"), 3) == "1000000000000000000000000000000.000"
+
+
+def test_span_mismatch_message_pinpoints_line_count(tiny_repo):
+    issues, _ = check_sources([TextSpan(id="c", file="crlf.txt", start_line=1, end_line=2, text="alpha 1")],
+                              tiny_repo)
+    assert issues[0].code == "SPAN_TEXT_MISMATCH"
+    assert "1 line(s)" in issues[0].message and "lines 1-2 are 2 lines" in issues[0].message
+
+
+def test_span_mismatch_message_shows_first_differing_file_line(tiny_repo):
+    issues, _ = check_sources([TextSpan(id="c", file="crlf.txt", start_line=1, end_line=2,
+                                        text="alpha 1\nbeta  2")], tiny_repo)
+    assert issues[0].code == "SPAN_TEXT_MISMATCH"
+    assert "line 2" in issues[0].message and "'beta 2'" in issues[0].message

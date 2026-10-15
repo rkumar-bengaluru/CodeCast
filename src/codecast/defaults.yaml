@@ -22,4 +22,12 @@ voice:
   tail_s: 0.5
 render:
   terminal_output_allowlist: ["*.log", "*.txt", "*.out", "logs/**", "**/output*"]
-pricing: {}
+pricing:
+  # source: https://developers.openai.com/api/docs/pricing (Standard tier), retrieved 2026-10-15.
+  # OpenAI bills cached input at the "Cached input" rate and has no cache-write charge,
+  # so cache_write uses the normal input rate (OpenAI usage never reports cache writes anyway).
+  gpt-5.4-mini:
+    input_per_mtok: 0.75
+    output_per_mtok: 4.50
+    cache_read_per_mtok: 0.075
+    cache_write_per_mtok: 0.75
