@@ -90,3 +90,21 @@ def test_all_errors_collected_together(tiny_repo):
     raw["scenes"][1]["items"][0] = "Uses ResNet50"
     res = validate_submission(raw, ctx(tiny_repo))
     assert {"SPAN_TEXT_MISMATCH", "UNGROUNDED_IDENTIFIER"} <= set(codes(res))
+
+
+def test_ungrounded_message_names_declared_sources_that_contain_the_claim(tiny_repo):
+    raw = valid_submission()
+    raw["scenes"][4]["narration"][0]["text"] = "This plot shows ViT-B-32 at 0.735 for every model here."
+    res = validate_submission(raw, ctx(tiny_repo))
+    bad = {i.code: i for i in res.issues if i.path == "scenes[4].narration[0]"}
+    assert set(bad) == {"UNGROUNDED_NUMBER", "UNGROUNDED_IDENTIFIER"}
+    assert "declared sources that contain it: ['readme']" in bad["UNGROUNDED_IDENTIFIER"].message
+    assert "declared sources that contain it: ['f1', 'models', 'readme']" in bad["UNGROUNDED_NUMBER"].message
+
+
+def test_ungrounded_message_without_any_matching_source(tiny_repo):
+    raw = valid_submission()
+    raw["scenes"][1]["items"][0] = "Uses ResNet50"
+    res = validate_submission(raw, ctx(tiny_repo))
+    bad = [i for i in res.issues if i.code == "UNGROUNDED_IDENTIFIER"]
+    assert "no declared source contains it" in bad[0].message
