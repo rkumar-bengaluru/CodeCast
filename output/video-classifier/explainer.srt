@@ -1,0 +1,47 @@
+1
+00:00:00,000 --> 00:00:04,551
+Meet video-classifier, a CPU-only proof of concept for chunker routing.
+
+2
+00:00:04,701 --> 00:00:07,325
+It turns video clips into routing decisions.
+
+3
+00:00:07,833 --> 00:00:11,804
+The Pareto plot shows the trade-off between accuracy and latency.
+
+4
+00:00:11,954 --> 00:00:14,752
+The chosen large@8 point sits near the top-right.
+
+5
+00:00:15,267 --> 00:00:21,664
+large@8 reaches 0.735 macro-F1 and 0.843 CUS.
+
+6
+00:00:21,814 --> 00:00:28,815
+small@4 is close behind at 0.677 macro-F1 and 0.824 CUS.
+
+7
+00:00:29,333 --> 00:00:34,140
+Predictor loads the production config, the ONNX head, and the encoder when needed.
+
+8
+00:00:34,290 --> 00:00:39,305
+It extracts frames, adds motion features, and prepares the batch for inference.
+
+9
+00:00:39,833 --> 00:00:44,373
+Then it runs the head, computes confidence, and returns the recommended chunker.
+
+10
+00:00:44,900 --> 00:00:49,823
+To reproduce it, install requirements, fetch the encoder, then run evaluate,
+
+11
+00:00:49,823 --> 00:00:51,831
+predict, benchmark, and pytest.
+
+12
+00:00:52,333 --> 00:00:56,989
+Clone the repository and compare the faster small model with the chosen large model.
