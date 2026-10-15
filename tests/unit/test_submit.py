@@ -92,3 +92,35 @@ def test_word_count_message_has_target(tiny_repo):
     raw["scenes"][1]["narration"] = raw["scenes"][1]["narration"][:1]
     out = submitter(tiny_repo)(raw)
     assert "WORD_COUNT" in out.feedback and "125" in out.feedback
+
+
+def test_text_span_with_trailing_newline_stored_canonical(tiny_repo):
+    raw = valid_submission()
+    raw["sources"][1]["text"] += "\n"
+    out = submitter(tiny_repo)(raw)
+    assert out.accepted and out.storyboard.sources["code"].text == 'def main():\n    print("hello")'
+
+
+def test_nan_inf_and_long_decimals_unrepresentable():
+    from decimal import Decimal
+    from codecast.grounding.spans import _json_safe
+    for bad_value in (Decimal("NaN"), Decimal("Infinity"), Decimal("0.1234567890123456789012")):
+        with pytest.raises(ValueError):
+            _json_safe(bad_value)
+    assert _json_safe(Decimal("0.7349")) == 0.7349 and _json_safe(Decimal("12")) == 12
+
+
+def test_accepted_storyboard_survives_disk_round_trip_and_revalidates(tiny_repo, tmp_path):
+    from codecast.models import Storyboard
+    sb = submitter(tiny_repo)(_by_reference()).storyboard
+    path = tmp_path / "storyboard.json"
+    path.write_text(sb.model_dump_json(indent=1))
+    loaded = Storyboard.model_validate_json(path.read_text())
+    assert submitter(tiny_repo)(loaded.to_submission()).accepted
+
+
+def test_revision_message_uses_feedback_target(tiny_repo):
+    s = submitter(tiny_repo)
+    first = s(valid_submission()).storyboard
+    s.begin_revision(first, target_words=118)
+    assert "~118 words" in s(valid_submission()).feedback

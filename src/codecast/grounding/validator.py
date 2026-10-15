@@ -155,6 +155,7 @@ def _grounding_issues(sb: Storyboard, index: SourceIndex) -> list[Issue]:
 
 MIN_SCENES, MAX_SCENES = 4, 8
 MIN_WORDS, MAX_WORDS = 110, 170
+TARGET_WORDS = 125
 MAX_SENTENCE_WORDS = 30
 MAX_BULLETS_TOTAL = 12
 _MULTI_SENTENCE = re.compile(r"[.!?]\s+\S")
@@ -196,7 +197,7 @@ def structure_issues(sb: Storyboard) -> list[Issue]:
                 issues.append(Issue(path=path, code="SENTENCE_UNCITED", message="cite at least one source"))
     if not MIN_WORDS <= words <= MAX_WORDS:
         issues.append(Issue(path="scenes", code="WORD_COUNT",
-                            message=f"{words} spoken words; need {MIN_WORDS}-{MAX_WORDS}; aim for ~125 words"))
+                            message=f"{words} spoken words; need {MIN_WORDS}-{MAX_WORDS}; aim for ~{TARGET_WORDS} words"))
     return issues
 
 

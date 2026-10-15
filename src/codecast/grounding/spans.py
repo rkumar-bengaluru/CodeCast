@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, localcontext
@@ -71,10 +72,19 @@ def dumps_decimal(value: Any) -> str:
 
 
 def _json_safe(value: Any) -> Any:
-    """Resolved (Decimal-bearing) JSON as plain Python values that round-trip through values_equal."""
+    """Resolved (Decimal-bearing) JSON as plain Python values that round-trip through values_equal.
+
+    Raises ValueError for a number that cannot be stored exactly as an int or float.
+    """
     if isinstance(value, Decimal):
-        return int(value) if value == value.to_integral_value() and "." not in str(value) \
-            and "E" not in str(value).upper() else float(value)
+        if not value.is_finite():
+            raise ValueError("non-finite number")
+        if value == value.to_integral_value() and "." not in str(value) and "E" not in str(value).upper():
+            return int(value)
+        f = float(value)
+        if math.isfinite(f) and Decimal(repr(f)) == value:
+            return f
+        raise ValueError(f"{value} is not exactly representable as a float")
     if isinstance(value, list):
         return [_json_safe(v) for v in value]
     if isinstance(value, dict):
@@ -198,6 +208,7 @@ def check_sources(sources: list[Source], repomap: RepoMap) -> tuple[list[Issue],
                                      f"({_mismatch_hint(claimed, actual, src.start_line, lines)}); copy the lines "
                                      f"exactly as read_file shows them (without line numbers)"))
                 continue
+            index.spans[src.id] = src.model_copy(update={"text": actual})  # canonical file text
             index.texts[src.id] = actual
         elif isinstance(src, JsonSpan):
             try:
@@ -220,9 +231,13 @@ def check_sources(sources: list[Source], repomap: RepoMap) -> tuple[list[Issue],
                                      f"value at {src.pointer} is {_show(resolved)}"))
                 continue
             if not provided:
-                index.spans[src.id] = src.model_copy(
-                    update={"value": _json_safe(resolved)}, deep=True)
-                index.spans[src.id].model_fields_set.add("value")
+                try:
+                    safe = _json_safe(resolved)
+                except ValueError as e:
+                    issues.append(_issue(i, "JSON_VALUE_UNREPRESENTABLE",
+                                         f"value at {src.pointer} cannot be stored exactly ({e}); cite something else"))
+                    continue
+                index.spans[src.id] = src.model_copy(update={"value": safe}, deep=True)
             index.values[src.id] = resolved
             index.texts[src.id] = resolved if isinstance(resolved, str) else _show(resolved)
     return issues, index

@@ -157,3 +157,29 @@ def test_revise_continues_conversation(tiny_repo, tmp_path):
     assert sb is not None
     assert provider.requests[1].messages[-1].text().startswith('{"total": 63.2')
     assert len(load_responses(tmp_path / "transcript.jsonl")) == 2
+
+
+def test_worked_example_is_valid_and_grounded():
+    import json
+    import re
+    from codecast.grounding.numbers import extract_claims, identifier_grounded, number_grounded, source_number_literals
+    prompt = load_director_prompt()
+    block = re.search(r"# Worked example.*?```json\n(.*?)\n```", prompt, re.S).group(1)
+    sb = json.loads(block)
+    texts = {"readme": "tinyq is a tiny job queue.\nRun it with `tinyq serve --port 8080`.\n",
+             "core": "def run(job):\n    return handler(job)", "p50": "12.5"}
+    everything = list(texts.values())
+    words = 0
+    for sc in sb["scenes"]:
+        for sent in sc["narration"]:
+            words += len(sent["text"].split())
+            cited = [texts[i] for i in sent["source_ids"]]
+            lits = [x for t in cited for x in source_number_literals(t)]
+            for c in extract_claims(sent["text"]):
+                ok = number_grounded(c.token, lits) if c.kind == "number" else identifier_grounded(c.token, cited)
+                assert ok, (c, sent["text"])
+        shown = [sc[k] for k in ("heading", "subheading", "cta") if k in sc] + sc.get("items", [])
+        for text in shown:
+            for c in extract_claims(text):
+                assert identifier_grounded(c.token, everything), (c, text)
+    assert 120 <= words <= 140, words
