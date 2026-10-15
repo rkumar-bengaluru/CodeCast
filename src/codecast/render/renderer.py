@@ -55,7 +55,18 @@ def _cell(cell, sb: Storyboard, repo_root: Path) -> dict:
 
 
 def _command_text(text: str) -> str:
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    """Command lines to type on screen. When the span holds a ``` fence (e.g. README prose around a code
+    block), only the fenced lines are commands; the surrounding prose is not shown in the terminal."""
+    raw = text.splitlines()
+    if any(ln.strip().startswith("```") for ln in raw):
+        fenced, inside = [], False
+        for ln in raw:
+            if ln.strip().startswith("```"):
+                inside = not inside
+            elif inside:
+                fenced.append(ln)
+        raw = fenced
+    lines = [ln.strip() for ln in raw if ln.strip()]
     return "\n".join(ln[2:] if ln.startswith("$ ") else ln for ln in lines)
 
 
@@ -76,8 +87,9 @@ def scene_context(sb: Storyboard, index: int, repo_root: Path) -> tuple[str, dic
         return "image.html", {**base, "src": f"{ORIGIN}/repo/{quote(span.file)}", "file": span.file,
                               "highlights": [list(r) for r in sc.highlights]}
     if isinstance(sc, MetricsTableScene):
-        return "metrics_table.html", {**base, "columns": sc.columns,
-                                      "rows": [[_cell(c, sb, repo_root) for c in row] for row in sc.rows]}
+        rows = [[_cell(c, sb, repo_root) for c in row] for row in sc.rows]
+        num_cols = [any(i < len(r) and r[i]["num"] for r in rows) for i in range(len(sc.columns))]
+        return "metrics_table.html", {**base, "columns": sc.columns, "rows": rows, "num_cols": num_cols}
     if isinstance(sc, DiagramScene):
         return "diagram.html", {**base, "mermaid": sc.mermaid}
     if isinstance(sc, TerminalScene):

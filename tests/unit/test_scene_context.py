@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from codecast.models import Storyboard, Submission
-from codecast.render.renderer import STATIC_URL, _env, highlight_code, scene_context
+from codecast.render.renderer import STATIC_URL, _command_text, _env, highlight_code, scene_context
 
 from tests.unit.storyboards import valid_submission
 
@@ -27,6 +27,7 @@ def test_contexts_for_each_type(tiny_repo):
     assert names == ["title.html", "bullets.html", "code.html", "metrics_table.html", "image.html", "outro.html"]
     _, table = scene_context(sb, 3, root)
     assert table["rows"] == [[{"text": "large@8", "num": False}, {"text": "0.735", "num": True}]]
+    assert table["num_cols"] == [False, True]   # numeric column headers align with their right-aligned values
     _, image = scene_context(sb, 4, root)
     assert image["src"] == "http://codecast.local/repo/plot.png" and image["highlights"] == [[0.1, 0.1, 0.3, 0.3]]
     assert image["static"] == STATIC_URL
@@ -42,6 +43,13 @@ def test_terminal_context_strips_prompt(tiny_repo):
     sb = Storyboard(repo_url="u", commit_sha="c", title="t", sources={s.id: s for s in sub.sources}, scenes=sub.scenes)
     name, ctx = scene_context(sb, 4, Path(tiny_repo.root))
     assert name == "terminal.html" and ctx["commands"] == ["Run `python app.py --top 3` to predict."]
+
+
+def test_command_text_keeps_only_fenced_lines_when_the_span_has_a_code_fence():
+    text = ("**Run** (needs Python):\n\n```bash\npip install -r requirements.txt\n$ python app.py\n```\n\n"
+            "**Full rebuild:** see the docs.")
+    assert _command_text(text) == "pip install -r requirements.txt\npython app.py"
+    assert _command_text("make\nmake test") == "make\nmake test"
 
 
 def test_autoescape_review_focus_3():

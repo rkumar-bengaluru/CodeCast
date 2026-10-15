@@ -42,6 +42,7 @@ table.metrics { border-collapse: collapse; margin-top: 12px; }
 table.metrics th { font-size: 34px; color: var(--muted); text-align: left; font-weight: 600; padding: 18px 48px 18px 0; border-bottom: 3px solid #30363d; }
 table.metrics td { font-size: 48px; padding: 22px 48px 22px 0; border-bottom: 1px solid #21262d; }
 table.metrics td.num { font-family: "JetBrains Mono", monospace; color: var(--good); text-align: right; }
+table.metrics th.num { text-align: right; }
 
 .diagram { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .diagram svg { max-width: 1680px; max-height: 760px; height: auto; }
