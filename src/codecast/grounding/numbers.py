@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Literal
+from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, InvalidOperation
+from typing import Iterable, Literal
 
 NUMBER_RE = re.compile(r"-?\d+(?:,\d{3})*(?:\.\d+)?%?")
 _TOKEN_RE = re.compile(r"(?:[A-Za-z0-9_@.\-/]|(?<=\d),(?=\d{3}(?!\d)))+%?")
@@ -156,3 +157,66 @@ def source_tokens(text: str) -> set[str]:
 
 def source_number_literals(text: str) -> list[str]:
     return [t for t in _prepared_tokens(text) if classify(t) == "number"]
+
+
+_MODES = (ROUND_HALF_UP, ROUND_HALF_EVEN)
+
+
+def _parse(literal: str) -> tuple[Decimal, bool, int] | None:
+    pct = literal.endswith("%")
+    core = (literal[:-1] if pct else literal).replace(",", "")
+    try:
+        value = Decimal(core)
+    except InvalidOperation:
+        return None
+    dec = len(core.split(".", 1)[1]) if "." in core else 0
+    return value, pct, dec
+
+
+def decimals(literal: str) -> int:
+    parsed = _parse(literal)
+    return parsed[2] if parsed else 0
+
+
+def _sig_figs(d: Decimal) -> int:
+    return len("".join(str(x) for x in d.as_tuple().digits).lstrip("0"))
+
+
+def _rounded(d: Decimal, n: int, mode: str) -> Decimal:
+    return d.quantize(Decimal(1).scaleb(-n), rounding=mode)
+
+
+def _rounds_to(v: Decimal, vdec: int, s: Decimal, max_n: int) -> bool:
+    for n in range(0, max_n + 1):
+        if n != vdec:
+            continue
+        for mode in _MODES:
+            r = _rounded(s, n, mode)
+            if r == v and _sig_figs(r) >= 2:
+                return True
+    return False
+
+
+def number_grounded(value: str, literals: Iterable[str]) -> bool:
+    pv = _parse(value)
+    if pv is None:
+        return False
+    v, v_pct, v_dec = pv
+    for lit in literals:
+        ps = _parse(lit)
+        if ps is None:
+            continue
+        s, s_pct, s_dec = ps
+        if v_pct == s_pct:
+            if v == s and v_dec <= s_dec:
+                return True
+            if s_dec > 0 and _rounds_to(v, v_dec, s, s_dec - 1):
+                return True
+        elif v_pct and not s_pct:
+            if _rounds_to(v, v_dec, s * 100, max(s_dec - 2, 0)):
+                return True
+    return False
+
+
+def identifier_grounded(token: str, source_texts: Iterable[str]) -> bool:
+    return any(token in source_tokens(t) for t in source_texts)
