@@ -7,16 +7,60 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Iterable
 
 from codecast.compose.segments import build_audio, concat_list, ken_burns_frames, segment_command
-from codecast.errors import RenderError
+from codecast.errors import CodecastError, RenderError
 from codecast.models import SceneFrames
 from codecast.voice.timeline import Timeline
 
 MAX_AV_DRIFT = 0.1
+
+
+def _run_streaming(argv: list[str], chunks: Iterable[bytes], timeout: float) -> tuple[int, bytes, bool]:
+    proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    err_parts: list[bytes] = []
+    fired = threading.Event()
+
+    def drain() -> None:
+        err_parts.append(proc.stderr.read())
+
+    def on_timeout() -> None:
+        fired.set()
+        proc.kill()
+
+    reader = threading.Thread(target=drain, daemon=True)
+    reader.start()
+    timer = threading.Timer(timeout, on_timeout)
+    timer.start()
+    try:
+        try:
+            for chunk in chunks:
+                proc.stdin.write(chunk)
+        except BrokenPipeError:
+            pass
+        finally:
+            try:
+                proc.stdin.close()
+            except BrokenPipeError:
+                pass
+        proc.wait()
+        reader.join(5)
+        return proc.returncode, b"".join(err_parts), fired.is_set()
+    except BaseException:
+        proc.kill()
+        proc.wait()
+        raise
+    finally:
+        timer.cancel()
+        for pipe in (proc.stdin, proc.stderr):
+            try:
+                pipe.close()
+            except Exception:
+                pass
 
 
 def run_ffmpeg(argv: list[str], *, stdin_chunks: Iterable[bytes] | None = None, timeout: float = 600) -> None:
@@ -25,20 +69,17 @@ def run_ffmpeg(argv: list[str], *, stdin_chunks: Iterable[bytes] | None = None, 
             res = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, timeout=timeout)
             code, err = res.returncode, res.stderr
         else:
-            proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-            try:
-                for chunk in stdin_chunks:
-                    proc.stdin.write(chunk)
-            except BrokenPipeError:
-                pass
-            finally:
-                proc.stdin.close()
-            err = proc.stderr.read()
-            code = proc.wait(timeout=timeout)
+            code, err, timed_out = _run_streaming(argv, stdin_chunks, timeout)
+            if timed_out:
+                raise RenderError(f"{argv[0]} timed out after {timeout:.0f}s", stage="compose")
     except FileNotFoundError as e:
         raise RenderError(f"{argv[0]} not found; install it with `brew install ffmpeg`", stage="compose") from e
     except subprocess.TimeoutExpired as e:
         raise RenderError(f"{argv[0]} timed out after {timeout:.0f}s", stage="compose") from e
+    except CodecastError:
+        raise
+    except Exception as e:
+        raise RenderError(f"{argv[0]} input stream failed: {e}", stage="compose") from e
     if code != 0:
         raise RenderError(f"{argv[0]} failed ({code}): {err.decode(errors='replace')[-800:]}", stage="compose")
 

@@ -35,3 +35,60 @@ def test_post_check(monkeypatch, tmp_path, fmt, v, a, ok):
 def test_run_ffmpeg_failure_carries_stderr(tmp_path):
     with pytest.raises(RenderError, match="No such file"):
         ff.run_ffmpeg(["ffmpeg", "-v", "error", "-i", str(tmp_path / "missing.png"), str(tmp_path / "o.mp4")])
+
+
+def _gone(pid):
+    import os
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    return False
+
+
+def test_generator_error_wrapped_and_child_reaped(monkeypatch):
+    import subprocess
+    import sys
+    procs = []
+    real = subprocess.Popen
+
+    def spy(*a, **k):
+        p = real(*a, **k)
+        procs.append(p)
+        return p
+
+    monkeypatch.setattr(subprocess, "Popen", spy)
+
+    def gen():
+        yield b"x"
+        raise ValueError("bad image")
+
+    with pytest.raises(RenderError, match="bad image") as ei:
+        ff.run_ffmpeg([sys.executable, "-c", "import sys; sys.stdin.buffer.read()"], stdin_chunks=gen())
+    assert ei.value.exit_code == 6
+    assert procs[0].poll() is not None and _gone(procs[0].pid)
+
+
+def test_large_stderr_no_deadlock():
+    import sys
+    code = "import sys; sys.stderr.write('x'*300000); sys.stdin.buffer.read(); sys.exit(3)"
+    chunks = (b"y" * 65536 for _ in range(64))
+    with pytest.raises(RenderError, match="failed \\(3\\)"):
+        ff.run_ffmpeg([sys.executable, "-c", code], stdin_chunks=chunks, timeout=30)
+
+
+def test_timeout_kills_child(monkeypatch):
+    import subprocess
+    import sys
+    procs = []
+    real = subprocess.Popen
+
+    def spy(*a, **k):
+        p = real(*a, **k)
+        procs.append(p)
+        return p
+
+    monkeypatch.setattr(subprocess, "Popen", spy)
+    with pytest.raises(RenderError, match="timed out"):
+        ff.run_ffmpeg([sys.executable, "-c", "import time; time.sleep(30)"], stdin_chunks=iter([b"x"]), timeout=1)
+    assert procs[0].poll() is not None
