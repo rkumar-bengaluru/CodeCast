@@ -1,0 +1,56 @@
+{
+ "run_id": "20261015T163800Z-988caa",
+ "started_at": "2026-10-15T16:49:32+00:00",
+ "ended_at": "2026-10-15T16:49:43+00:00",
+ "repo_url": "https://github.com/rkumar-bengaluru/video-classifier",
+ "commit_sha": "12863e251071bd223d88d8457206cd1529895688",
+ "llm": {
+  "provider": "openai",
+  "model": "gpt-5.4-mini",
+  "temperature": 0.3
+ },
+ "status": "ok",
+ "exit_code": 0,
+ "failure": null,
+ "ingest": {
+  "n_files": 59,
+  "skipped_by_reason": {
+   "ignored_dir": 1,
+   "too_large": 2
+  }
+ },
+ "budget": {
+  "max_steps": 31,
+  "steps_used": 8,
+  "tool_calls": {
+   "read_file": 16,
+   "view_image": 1,
+   "submit_storyboard": 3
+  }
+ },
+ "usage": {
+  "input": 32946,
+  "output": 3960,
+  "cache_read_input": 112128,
+  "cache_write_input": 0
+ },
+ "cost_usd": 0.050939,
+ "cost_unknown_reason": null,
+ "context": null,
+ "validation": {
+  "storyboard_rounds": 3,
+  "duration_rounds": 1,
+  "failures_by_code": {}
+ },
+ "tts_engine": "piper",
+ "stage_seconds": {
+  "render": 1.47,
+  "compose": 7.492
+ },
+ "video": {
+  "path": "output/video-classifier/explainer.mp4",
+  "duration_s": 57.5,
+  "size_bytes": 2935438,
+  "narration_s": 53.29
+ }
+}

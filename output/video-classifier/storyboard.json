@@ -1,0 +1,390 @@
+{
+ "version": 1,
+ "repo_url": "https://github.com/rkumar-bengaluru/video-classifier",
+ "commit_sha": "12863e251071bd223d88d8457206cd1529895688",
+ "title": "video-classifier in a minute",
+ "sources": {
+  "readme": {
+   "kind": "text",
+   "id": "readme",
+   "file": "README.md",
+   "start_line": 1,
+   "end_line": 4,
+   "text": "# Video-type classifier for chunker routing (CPU-only POC)\n\n**Recommendation: `large@8`** (ViT-B-32 on 8 frames + logistic head): macro-F1 0.735, CUS 0.843, 891 ms/video, 351 MB (image tower). **Lightweight alternative: `small@4`** (MobileCLIP2-S0 on 4 frames): 47% of the latency and 1/7.7 of the size for −0.057 macro-F1 and −0.019 CUS, the CIs overlap (unpaired). Numbers come from `artifacts/eval_results.json`, `benchmark.json` and `features/timings.json`.\n"
+  },
+  "data": {
+   "kind": "text",
+   "id": "data",
+   "file": "README.md",
+   "start_line": 5,
+   "end_line": 18,
+   "text": "## 1. Taxonomy and data\n\n| Class | Chunker | Visual signature (typical VideoMME source) |\n|---|---|---|\n| gameplay_animation | shot_boundary | synthetic colours, HUDs, hard cuts (Esports, Animation) |\n| sports_broadcast | motion_segment | fields or courts, fast pans, score bugs (Football, Basketball) |\n| vlog_egocentric | activity | handheld, first-person, one continuous scene (Daily Life, Travel) |\n| talking_head | speaker_turn | static framed face (News, interviews) |\n| presentation_screen | slide_change | static slides or screens (Knowledge) |\n| cinematic_documentary | semantic_scene | graded footage, B-roll, varied scenes (Film & TV, Documentary) |\n\nEach class calls for a different chunker and occurs in VideoMME. **Sample:** stratified 10% (90 of 900 videos; 30 short/30 medium/30 long; duration × domain, seed 42); 9 unavailable videos were replaced by same-stratum spares.\n\n**Labels:** sub-category defaults, then a 4×4 contact-sheet review per video changed 27/90 (agreement 0.70). Final support: cinematic 35, vlog 22, gameplay 11, talking_head 9, sports 8, presentation 5."
+  },
+  "features": {
+   "kind": "text",
+   "id": "features",
+   "file": "README.md",
+   "start_line": 20,
+   "end_line": 26,
+   "text": "## 2. Feature engineering\n\n**Frame sampling.** I seek-decode 16 timestamps spread uniformly over the video, skipping the first and last 5%, at 240p (23.4 ms per timestamp). Seeking makes cost independent of video length; 4/8-frame configs use evenly spaced subsets.\n\n**Motion features.** At each timestamp, a burst of 8 grayscale 64×64 frames, 0.25 s apart, gives 13 model-free features (3.4 ms per timestamp): motion energy (mean/std/max), hard-cut rate, camera shake (`phaseCorrelate` shift mean/std), static fraction, scene diversity, brightness (mean/std), saturation, edge density and colourfulness. A per-frame image encoder cannot see these.\n\n**Frozen encoders.** I use the image towers of MobileCLIP2-S0/dfndr2b (45 MB) and ViT-B-32/laion2b_s34b_b79k (351 MB; the full CLIP checkpoint downloaded is about 605 MB, and its text tower is unused at serve time). Each 512-d embedding is pooled as mean ⊕ std over frames. The head is a class-balanced logistic regression: 33 KB of parameters (41.5 KB as ONNX)."
+  },
+  "results": {
+   "kind": "text",
+   "id": "results",
+   "file": "README.md",
+   "start_line": 28,
+   "end_line": 45,
+   "text": "## 3. Results\n\nStratified 5-fold CV × 5 repeats; brackets are 95% bootstrap CIs.\n\n![Pareto](../artifacts/pareto.png)\n\n| Config | macro-F1 [CI] | CUS [CI] | ms/video | MB |\n|---|---|---|---|---|\n| motion@4 | 0.205 [0.147, 0.282] | 0.542 [0.495, 0.603] | 108 | 0.0004 |\n| **small@4** (lightweight) | 0.677 [0.550, 0.756] | 0.824 [0.767, 0.871] | 420 | 45.5 |\n| small@16 | 0.707 [0.587, 0.772] | 0.847 [0.794, 0.890] | 1678 | 45.5 |\n| **large@8** (chosen) | 0.735 [0.622, 0.809] | 0.843 [0.780, 0.894] | 891 | 351.4 |\n| large@16 (best) | 0.759 [0.638, 0.837] | 0.864 [0.810, 0.910] | 1782 | 351.4 |\n| zero-shot large@16 | 0.572 [0.436, 0.679] | 0.764 [0.697, 0.821] | 1781 | 351.4 |\n\n**Operating point.** The rule picks the fastest config within 0.03 macro-F1 of the best (large@16). This rule optimises latency at near-best accuracy; if weight size or download dominates (edge, tight memory), `small@4` (45 MB, 420 ms) is the drop-in alternative via one config change, and `large@4` (446 ms, F1 0.687) is the latency-matched point. τ = 0.0 (fallback off): no threshold gave ≥90% accuracy at ≥50% coverage; τ = 0.5 gives 0.828 accuracy at 71% coverage, τ = 0.9 gives 0.905 at 23%.\n\n**Lightweight trade-off.** small@4 halves latency and is 7.7× smaller for about 2 CUS points. At batch 16 on this CPU both encoders cost about 55–57 ms/frame, so its speed comes from using 4 frames; the small encoder's benefit is weight size."
+  },
+  "cus": {
+   "kind": "text",
+   "id": "cus",
+   "file": "README.md",
+   "start_line": 51,
+   "end_line": 57,
+   "text": "## 4. Custom metric: Chunking Utility Score (CUS)\n\nNot all routing errors cost the same. A talking head sent to the slide chunker keeps a transcript-aligned chunker; one sent to the motion chunker does not.\n\nU (`artifacts/utility.csv`, an assumption to calibrate against per-class retrieval recall) is the fraction of chunking quality kept when a video of class `true` is routed as `pred`: 1.0 on the diagonal, 0.7 gameplay ↔ sports, 0.6 talking_head ↔ presentation, 0.5 vlog ↔ cinematic, 0.2–0.4 elsewhere. **CUS** is the mean of U[yᵢ, ŷᵢ] over videos.\n\n**Expected-utility rule.** The rule ŷ = argmaxₖ Σⱼ p(j)·U[j,k] changes CUS by only +0.0042 at large@8, and by −0.003 to +0.004 across the embedding configs. U is strongly diagonal-dominant and the head is confident, so production uses argmax."
+  },
+  "deploy": {
+   "kind": "text",
+   "id": "deploy",
+   "file": "README.md",
+   "start_line": 59,
+   "end_line": 71,
+   "text": "## 5. Deployment (on paper)\n\n```mermaid\nflowchart LR\n  Q[Ingest queue] --> D[Stateless CPU worker:<br/>seek-decode 8 frames @240p]\n  D -. \"optional stage 1:<br/>motion head, conf ≥ τ1\" .-> R\n  D --> E[ViT-B-32 via ONNX Runtime int8,<br/>batched across videos] --> H[ONNX head]\n  H -- conf ≥ τ --> R[Chunker router]\n  H -- conf < τ --> F[fixed_window] --> R\n  H -.-> M[Monitor: class-mix drift,<br/>low-confidence rate → active learning]\n```\n\nWorkers are stateless and scale horizontally; monitoring tracks class-mix drift and the low-confidence share (29% below 0.5 here) for active learning. The optional motion-only stage 1 never matched stage-2 accuracy here (stop fraction 0.0), so expected cost stays 891 ms/video; int8 was not measured. Measured end-to-end (batch 1, 3 demo clips): p50 598.8 ms, p95 612.5 ms (decode 168 ms, encoder 430 ms)."
+  },
+  "run": {
+   "kind": "text",
+   "id": "run",
+   "file": "README.md",
+   "start_line": 79,
+   "end_line": 90,
+   "text": "**Run** (from `run.yaml`; requires Python 3.12+, CPU only):\n\n```bash\npip install -r requirements.txt\npython src/main.py fetch-encoder\npython src/main.py evaluate\npython src/main.py predict samples/\npython src/main.py benchmark samples/\npython -m pytest -q\n```\n\n**Full rebuild:** `python src/main.py <step>` for `sample → download → extract → label-sheets → labels → featurize → evaluate → export`; before `labels`, review the sheets and record corrections in `artifacts/label_overrides.csv`."
+  },
+  "predict_a": {
+   "kind": "text",
+   "id": "predict_a",
+   "file": "src/predict.py",
+   "start_line": 30,
+   "end_line": 40,
+   "text": "class Predictor:\n    def __init__(self, models_dir=C.MODELS, encoder=None):\n        self.prod = json.loads((Path(models_dir) / \"production.json\").read_text())\n        self.cfg = Config.parse(self.prod[\"config\"])\n        self.keep = frame_subset(C.N_FRAMES, self.cfg.n_frames)\n        self.session = ort.InferenceSession(str(Path(models_dir) / self.prod[\"head\"]),\n                                            providers=[\"CPUExecutionProvider\"])\n        self.encoder = encoder\n        if self.cfg.encoder and self.encoder is None:\n            from encoders import load\n            self.encoder = load(*self.prod[\"encoder\"])"
+  },
+  "predict_b": {
+   "kind": "text",
+   "id": "predict_b",
+   "file": "src/predict.py",
+   "start_line": 45,
+   "end_line": 59,
+   "text": "    def predict_many(self, paths):\n        results, ok = [], []\n        for p in map(Path, paths):\n            try:\n                s = extract(p, C.N_FRAMES, keep=self.keep)\n            except Exception as e:  # corrupt/unsupported input must not abort the batch\n                results.append({\"video\": str(p), \"error\": str(e)})\n                continue\n            lat, feats = {\"decode\": s.decode_ms, \"motion\": 0.0, \"encoder\": 0.0}, {}\n            if self.cfg.uses_motion:\n                t0 = time.perf_counter()\n                feats[f\"motion_n{self.cfg.n_frames}\"] = video_features(s.rgb, s.gray)[None]\n                lat[\"motion\"] = _ms(t0)\n            ok.append((len(results), p, s, feats, lat))\n            results.append(None)"
+  },
+  "predict_c": {
+   "kind": "text",
+   "id": "predict_c",
+   "file": "src/predict.py",
+   "start_line": 60,
+   "end_line": 77,
+   "text": "        if ok and self.cfg.encoder:\n            t0 = time.perf_counter()\n            emb = self.encoder.embed(np.concatenate([s.rgb for _, _, s, _, _ in ok]), batch_size=32)\n            # training embeddings are stored fp16; match that precision at serve time\n            emb = emb.astype(np.float16).astype(np.float32)\n            per, n = _ms(t0) / len(ok), self.cfg.n_frames\n            for j, (_, _, _, feats, lat) in enumerate(ok):\n                feats[self.cfg.encoder] = emb[j * n:(j + 1) * n][None]\n                lat[\"encoder\"] = per\n        if ok:\n            X = np.concatenate([build_X(self.cfg, feats) for _, _, _, feats, _ in ok])\n            t0 = time.perf_counter()\n            proba = self.session.run(None, {\"input\": X})[1]\n            per = _ms(t0) / len(ok)\n            for j, (i, p, _, _, lat) in enumerate(ok):\n                lat[\"head\"] = per\n                lat[\"total\"] = sum(lat.values())\n                results[i] = self._result(p, proba[j], lat)"
+  },
+  "prod": {
+   "kind": "json",
+   "id": "prod",
+   "file": "artifacts/models/production.json",
+   "pointer": "",
+   "value": {
+    "config": "large@8",
+    "features": "large",
+    "n_frames": 8,
+    "encoder": [
+     "ViT-B-32",
+     "laion2b_s34b_b79k"
+    ],
+    "head": "head_large_8.onnx",
+    "tau": 0.0,
+    "classes": [
+     "gameplay_animation",
+     "sports_broadcast",
+     "vlog_egocentric",
+     "talking_head",
+     "presentation_screen",
+     "cinematic_documentary"
+    ],
+    "n_features": 1024
+   }
+  },
+  "bench": {
+   "kind": "json",
+   "id": "bench",
+   "file": "artifacts/benchmark.json",
+   "pointer": "",
+   "value": {
+    "config": "large@8",
+    "videos": [
+     "samples\\gameplay_animation_736.mp4",
+     "samples\\sports_broadcast_453.mp4",
+     "samples\\talking_head_422.mp4"
+    ],
+    "batch1_ms": {
+     "p50": 592.4512001220137,
+     "p95": 617.7370599936694,
+     "mean": 596.9726666808128
+    },
+    "batch1_throughput_vps": 1.6751185704364524,
+    "batch32_wall_ms": 18870.68809987977,
+    "batch32_throughput_vps": 1.6957516244573974,
+    "components_ms_median": {
+     "decode": 167.55,
+     "motion": 0.0,
+     "encoder": 421.31,
+     "head": 0.19
+    },
+    "machine": {
+     "cpu_count": 16,
+     "platform": "Windows-11-10.0.26200-SP0",
+     "processor": "AMD64 Family 25 Model 80 Stepping 0, AuthenticAMD"
+    }
+   }
+  },
+  "eval_large": {
+   "kind": "json",
+   "id": "eval_large",
+   "file": "artifacts/eval_results.json",
+   "pointer": "/configs/large@8/detail/macro_f1",
+   "value": 0.7405097256831704
+  },
+  "eval_cus": {
+   "kind": "json",
+   "id": "eval_cus",
+   "file": "artifacts/eval_results.json",
+   "pointer": "/configs/large@8/detail/cus",
+   "value": 0.8422222222222223
+  },
+  "eval_small": {
+   "kind": "json",
+   "id": "eval_small",
+   "file": "artifacts/eval_results.json",
+   "pointer": "/configs/small@4/detail/macro_f1",
+   "value": 0.6510521885521886
+  },
+  "eval_small_cus": {
+   "kind": "json",
+   "id": "eval_small_cus",
+   "file": "artifacts/eval_results.json",
+   "pointer": "/configs/small@4/detail/cus",
+   "value": 0.8322222222222223
+  },
+  "pareto": {
+   "kind": "image",
+   "id": "pareto",
+   "file": "artifacts/pareto.png"
+  }
+ },
+ "scenes": [
+  {
+   "narration": [
+    {
+     "text": "Meet video-classifier, a CPU-only proof of concept for chunker routing.",
+     "source_ids": [
+      "readme"
+     ]
+    },
+    {
+     "text": "It turns video clips into routing decisions.",
+     "source_ids": [
+      "readme",
+      "data"
+     ]
+    }
+   ],
+   "type": "title",
+   "heading": "video-classifier",
+   "subheading": "A CPU-only router for chunker selection."
+  },
+  {
+   "narration": [
+    {
+     "text": "The Pareto plot shows the trade-off between accuracy and latency.",
+     "source_ids": [
+      "results"
+     ]
+    },
+    {
+     "text": "The chosen large@8 point sits near the top-right.",
+     "source_ids": [
+      "results",
+      "features"
+     ]
+    }
+   ],
+   "type": "image",
+   "image_id": "pareto",
+   "highlights": [
+    [
+     0.48,
+     0.18,
+     0.22,
+     0.28
+    ],
+    [
+     0.82,
+     0.18,
+     0.16,
+     0.28
+    ],
+    [
+     0.02,
+     0.55,
+     0.18,
+     0.18
+    ]
+   ],
+   "motion": {
+    "kind": "ken_burns",
+    "from_rect": [
+     0.18,
+     0.12,
+     0.55,
+     0.55
+    ],
+    "to_rect": [
+     0.55,
+     0.12,
+     0.4,
+     0.55
+    ]
+   }
+  },
+  {
+   "narration": [
+    {
+     "text": "large@8 reaches 0.735 macro-F1 and 0.843 CUS.",
+     "source_ids": [
+      "results",
+      "eval_large",
+      "eval_cus"
+     ]
+    },
+    {
+     "text": "small@4 is close behind at 0.677 macro-F1 and 0.824 CUS.",
+     "source_ids": [
+      "results",
+      "eval_small",
+      "eval_small_cus"
+     ]
+    }
+   ],
+   "type": "metrics_table",
+   "columns": [
+    "Config",
+    "macro-F1",
+    "CUS"
+   ],
+   "rows": [
+    [
+     "large@8",
+     {
+      "span_id": "eval_large",
+      "decimals": 3
+     },
+     {
+      "span_id": "eval_cus",
+      "decimals": 3
+     }
+    ],
+    [
+     "small@4",
+     {
+      "span_id": "eval_small",
+      "decimals": 3
+     },
+     {
+      "span_id": "eval_small_cus",
+      "decimals": 3
+     }
+    ]
+   ]
+  },
+  {
+   "narration": [
+    {
+     "text": "Predictor loads the production config, the ONNX head, and the encoder when needed.",
+     "source_ids": [
+      "predict_a",
+      "prod"
+     ]
+    },
+    {
+     "text": "It extracts frames, adds motion features, and prepares the batch for inference.",
+     "source_ids": [
+      "predict_a",
+      "predict_b"
+     ]
+    }
+   ],
+   "type": "code",
+   "span_id": "predict_a",
+   "highlight_lines": [
+    30,
+    32,
+    33,
+    35,
+    38,
+    40
+   ]
+  },
+  {
+   "narration": [
+    {
+     "text": "Then it runs the head, computes confidence, and returns the recommended chunker.",
+     "source_ids": [
+      "predict_c",
+      "prod"
+     ]
+    }
+   ],
+   "type": "code",
+   "span_id": "predict_c",
+   "highlight_lines": [
+    60,
+    62,
+    64,
+    65,
+    72,
+    75,
+    76,
+    77
+   ]
+  },
+  {
+   "narration": [
+    {
+     "text": "To reproduce it, install requirements, fetch the encoder, then run evaluate, predict, benchmark, and pytest.",
+     "source_ids": [
+      "run"
+     ]
+    }
+   ],
+   "type": "terminal",
+   "command_span_ids": [
+    "run"
+   ],
+   "output_span_id": null
+  },
+  {
+   "narration": [
+    {
+     "text": "Clone the repository and compare the faster small model with the chosen large model.",
+     "source_ids": [
+      "results",
+      "readme"
+     ]
+    }
+   ],
+   "type": "outro",
+   "repo_url": "https://github.com/rkumar-bengaluru/video-classifier",
+   "cta": "Clone it and try the routing pipeline."
+  }
+ ],
+ "llm": {
+  "provider": "openai",
+  "model": "gpt-5.4-mini"
+ }
+}
