@@ -62,29 +62,32 @@ def _write_json(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def _load_or_fail(path: Path, what: str) -> str:
+def _load_or_fail(path: Path, what: str, stage: str) -> str:
     if not path.is_file():
-        raise ConfigError(f"cannot resume: {what} not found at {path}")
+        raise ConfigError(f"cannot resume: {what} not found at {path}", stage=stage)
     return path.read_text(encoding="utf-8")
 
 
 def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_factory=Renderer,
         preflight: bool = True) -> RunReport:
-    if opts.from_stage and opts.from_stage not in STAGES[2:]:
-        raise ConfigError(f"--from-stage must be one of {STAGES[2:]}")
-    if opts.from_stage and not opts.run_id:
-        raise ConfigError("--from-stage requires --run <run_id>")
     run_id = opts.run_id or _new_run_id()
     ws = Path(opts.workspace) / run_id
-    ws.mkdir(parents=True, exist_ok=True)
     rb = ReportBuilder(run_id, opts.repo, cfg)
     rep = rb.report
     out_root = Path(opts.out_dir)
-    name = repo_name(opts.repo)
+    try:
+        name = repo_name(opts.repo)
+    except Exception:  # noqa: BLE001 - reported properly at the ingest stage
+        name = "unknown"
     current = "preflight"
-    resume_at = STAGES.index(opts.from_stage) if opts.from_stage else 0
     lo, hi = opts.duration_range
     try:
+        if opts.from_stage and opts.from_stage not in STAGES[2:]:
+            raise ConfigError(f"--from-stage must be one of {STAGES[2:]}")
+        if opts.from_stage and not opts.run_id:
+            raise ConfigError("--from-stage requires --run <run_id>")
+        resume_at = STAGES.index(opts.from_stage) if opts.from_stage else 0
+        ws.mkdir(parents=True, exist_ok=True)
         if preflight:
             from codecast.preflight import fatal_problems
             problems = fatal_problems(cfg, require_key=resume_at <= 1, allow_network_tts=opts.allow_network_tts)
@@ -101,7 +104,7 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
                 repomap = ingest(opts.repo, ws / "repo")
                 _write_json(ws / "repomap.json", repomap.model_dump_json(indent=1))
         else:
-            repomap = RepoMap.model_validate_json(_load_or_fail(ws / "repomap.json", "repomap.json"))
+            repomap = RepoMap.model_validate_json(_load_or_fail(ws / "repomap.json", "repomap.json", "ingest"))
         rep.repo_url, rep.commit_sha, rep.ingest.n_files = repomap.repo_url, repomap.commit_sha, repomap.n_files
         rep.ingest.skipped_by_reason = dict(Counter(s.reason for s in repomap.skipped))
         name = repo_name(repomap.repo_url)
@@ -130,7 +133,7 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
                         _agent_stats(rep, agent, submitter, cfg)
                     _write_json(ws / "storyboard.json", sb.model_dump_json(indent=1))
             else:
-                sb = Storyboard.model_validate_json(_load_or_fail(ws / "storyboard.json", "storyboard.json"))
+                sb = Storyboard.model_validate_json(_load_or_fail(ws / "storyboard.json", "storyboard.json", "agent"))
 
             # [3] voice (+ duration loop)
             current = "voice"
@@ -160,7 +163,7 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
                                                          gap_s=cfg.voice.gap_s, tail_s=cfg.voice.tail_s)
                     _write_json(ws / "timeline.json", timeline.model_dump_json(indent=1))
             else:
-                timeline = Timeline.model_validate_json(_load_or_fail(ws / "timeline.json", "timeline.json"))
+                timeline = Timeline.model_validate_json(_load_or_fail(ws / "timeline.json", "timeline.json", "voice"))
 
             # [4] render
             current = "render"
@@ -169,7 +172,7 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
                     frames = render_all(sb, timeline, Path(repomap.root), ws / "frames", renderer)
                     _write_json(ws / "frames.json", json.dumps([f.model_dump() for f in frames], indent=1))
             else:
-                frames = [SceneFrames.model_validate(f) for f in json.loads(_load_or_fail(ws / "frames.json", "frames.json"))]
+                frames = [SceneFrames.model_validate(f) for f in json.loads(_load_or_fail(ws / "frames.json", "frames.json", "render"))]
 
         # [5] compose
         current = "compose"
@@ -194,10 +197,13 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
         else:
             rb.fail(e, stage=current)
         final = rb.finish()
-        _write_json(ws / "run_report.json", final.model_dump_json(indent=1))
-        _write_json(out_root / name / "last_failed_run_report.json", final.model_dump_json(indent=1))
-        for staging in (out_root / name).glob(f".staging-{run_id}"):
-            shutil.rmtree(staging, ignore_errors=True)
+        text = final.model_dump_json(indent=1)
+        for target in (ws / "run_report.json", out_root / name / "last_failed_run_report.json"):
+            try:
+                _write_json(target, text)
+            except OSError:
+                pass
+        shutil.rmtree(out_root / name / f".staging-{run_id}", ignore_errors=True)
         return final
 
 

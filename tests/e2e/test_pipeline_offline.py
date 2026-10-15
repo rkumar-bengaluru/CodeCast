@@ -89,3 +89,38 @@ def test_resume_from_render_reuses_workspace(git_repo, tmp_path):
               engine=SilenceEngine(0.4), preflight=False)
     assert rep.status == "ok", rep.failure
     assert (tmp_path / "output" / "tiny" / "explainer.mp4").is_file()
+
+
+def test_resume_from_voice_out_of_range_exit_3_output_untouched(git_repo, tmp_path):
+    first = run(opts(git_repo, tmp_path), load_config(), provider=FakeProvider([submit()]),
+                engine=SilenceEngine(0.4), preflight=False)
+    assert first.status == "ok"
+    mp4 = tmp_path / "output" / "tiny" / "explainer.mp4"
+    before = mp4.read_bytes()
+    shutil.rmtree(tmp_path / "ws" / "r1" / "audio")      # the audio cache would otherwise be reused as-is
+    rep = run(opts(git_repo, tmp_path, from_stage="voice"), load_config(), provider=FakeProvider([]),
+              engine=SilenceEngine(0.6), preflight=False)
+    assert rep.exit_code == 3 and rep.failure.stage == "voice"
+    assert mp4.read_bytes() == before
+
+
+def test_agent_failure_records_stats(git_repo, tmp_path):
+    from codecast.llm.fake import say
+    rep = run(opts(git_repo, tmp_path), load_config(), provider=FakeProvider([say("a"), say("b"), say("c")]),
+              engine=SilenceEngine(0.4), preflight=False)
+    assert rep.exit_code == 4 and rep.failure.stage == "agent"
+    assert rep.budget.steps_used == 3
+
+
+def test_invalid_from_stage_returns_report_exit_7(git_repo, tmp_path):
+    rep = run(RunOptions(repo=str(git_repo), out_dir=tmp_path / "o", workspace=tmp_path / "ws", from_stage="render"),
+              load_config(), provider=FakeProvider([]), engine=SilenceEngine(0.4), preflight=False)
+    assert rep.exit_code == 7
+
+
+def test_unwritable_out_dir_still_returns_report(git_repo, tmp_path):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x")
+    rep = run(RunOptions(repo="git@github.com:o/r.git", out_dir=blocker / "o", workspace=tmp_path / "ws", run_id="r9"),
+              load_config(), provider=FakeProvider([]), engine=SilenceEngine(), preflight=False)
+    assert rep.exit_code == 2
