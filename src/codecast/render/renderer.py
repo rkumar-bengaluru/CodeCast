@@ -14,7 +14,7 @@ from pygments.lexers import TextLexer, get_lexer_for_filename
 from pygments.util import ClassNotFound
 
 from codecast.errors import RenderError
-from codecast.grounding.spans import format_cell, load_json_decimal, resolve_pointer
+from codecast.grounding.spans import format_cell, load_data_decimal, resolve_pointer
 from codecast.ingest.sandbox import Sandbox, SandboxError
 from codecast.models import (
     Box, BulletsScene, CellRef, CodeScene, DiagramScene, ImageScene, MetricsTableScene, OutroScene,
@@ -47,7 +47,7 @@ def _cell(cell, sb: Storyboard, repo_root: Path) -> dict:
     if isinstance(cell, str):
         return {"text": cell, "num": False}
     span = sb.sources[cell.span_id]
-    value = resolve_pointer(load_json_decimal(repo_root / span.file), span.pointer)
+    value = resolve_pointer(load_data_decimal(repo_root / span.file), span.pointer)
     text = format_cell(value, cell.decimals)
     if text is None:
         raise RenderError(f"table cell {cell.span_id} does not resolve to a number")
