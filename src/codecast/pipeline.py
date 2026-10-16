@@ -21,7 +21,7 @@ from codecast.grounding.validator import ValidationContext
 from codecast.ingest.clone import ingest, repo_name
 from codecast.llm.pricing import estimate_cost
 from codecast.llm.registry import create_provider
-from codecast.models import RepoMap, SceneFrames, Storyboard
+from codecast.models import DURATION_RANGE_S, RepoMap, SceneFrames, Storyboard
 from codecast.render.renderer import Renderer, render_all
 from codecast.report import ReportBuilder, RunReport, VideoInfo
 from codecast.voice.engines import select_engine
@@ -40,7 +40,7 @@ class RunOptions:
     allow_network_tts: bool = False
     from_stage: str | None = None
     run_id: str | None = None
-    duration_range: tuple[float, float] = (50.0, 60.0)
+    duration_range: tuple[float, float] = DURATION_RANGE_S
 
 
 def safe_mermaid_check(check):

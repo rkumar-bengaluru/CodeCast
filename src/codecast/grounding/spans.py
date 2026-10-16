@@ -10,6 +10,8 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, localcontext
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from codecast.models import ImageRef, Issue, JsonSpan, RepoMap, Source, TextSpan
 
 
@@ -23,11 +25,11 @@ def resolve_pointer(doc: Any, pointer: str) -> Any:
     if not pointer.startswith("/"):
         raise PointerError("pointer must be empty or start with '/'")
     cur = doc
-    for raw in pointer[1:].split("/"):
-        tok = raw.replace("~1", "/").replace("~0", "~")
+    toks = [raw.replace("~1", "/").replace("~0", "~") for raw in pointer[1:].split("/")]
+    for i, tok in enumerate(toks):
         if isinstance(cur, dict):
             if tok not in cur:
-                raise PointerError(f"key {tok!r} not found")
+                raise PointerError(f"key {tok!r} not found{_slash_key_hint(cur, toks, i)}")
             cur = cur[tok]
         elif isinstance(cur, list):
             # Bounded digits keep int() far below the int-string conversion limit.
@@ -37,6 +39,16 @@ def resolve_pointer(doc: Any, pointer: str) -> Any:
         else:
             raise PointerError(f"cannot descend into {type(cur).__name__} at {tok!r}")
     return cur
+
+
+def _slash_key_hint(obj: dict, toks: list[str], i: int) -> str:
+    """Point out a key containing '/' that the pointer split into several tokens."""
+    for j in range(len(toks), i + 1, -1):
+        key = "/".join(toks[i:j])
+        if key in obj:
+            escaped = "/" + "/".join(t.replace("~", "~0").replace("/", "~1") for t in [key, *toks[j:]])
+            return f"; key {key!r} exists: escape '/' inside keys as '~1', e.g. {escaped!r}"
+    return ""
 
 
 def read_text_normalized(path: Path) -> str:
@@ -49,7 +61,71 @@ def read_lines(path: Path) -> list[str]:
 
 
 def load_json_decimal(path: Path) -> Any:
-    return json.loads(read_text_normalized(path), parse_float=Decimal)
+    text = read_text_normalized(path)
+    try:
+        return json.loads(text, parse_float=Decimal)
+    except json.JSONDecodeError as strict_error:
+        relaxed = _strip_jsonc(text)
+        if relaxed == text:
+            raise
+        try:  # JSON with comments / trailing commas, as found in many repos' config and data files
+            return json.loads(relaxed, parse_float=Decimal)
+        except json.JSONDecodeError:
+            raise strict_error from None
+
+
+def _strip_jsonc(text: str) -> str:
+    """Drop // and /* */ comments and trailing commas outside strings; newlines are kept."""
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i:j + 1])
+            i = j + 1
+        elif text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+        elif text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            out.append("\n" * text.count("\n", i, j))
+            i = j
+        else:
+            out.append(c)
+            i += 1
+    stripped = "".join(out)
+    return re.sub(r',(\s*[}\]])|("(?:[^"\\]|\\.)*")', lambda m: m.group(2) or m.group(1), stripped)
+
+
+class _DecimalYamlLoader(yaml.SafeLoader):
+    """SafeLoader that keeps floats exact (Decimal from the literal) and timestamps as their literal text."""
+
+
+def _yaml_float(loader: yaml.SafeLoader, node: yaml.ScalarNode) -> Any:
+    try:
+        return Decimal(loader.construct_scalar(node).replace("_", ""))
+    except InvalidOperation:  # .inf / .nan spellings
+        return loader.construct_yaml_float(node)
+
+
+_DecimalYamlLoader.add_constructor("tag:yaml.org,2002:float", _yaml_float)
+_DecimalYamlLoader.add_constructor("tag:yaml.org,2002:timestamp", yaml.SafeLoader.construct_scalar)
+
+YAML_SUFFIXES = (".yml", ".yaml")
+
+
+def load_data_decimal(path: Path) -> Any:
+    """Load a JSON or YAML data file (chosen by suffix) with exact Decimal floats."""
+    if Path(path).suffix.lower() not in YAML_SUFFIXES:
+        return load_json_decimal(path)
+    try:
+        return yaml.load(read_text_normalized(path), Loader=_DecimalYamlLoader)
+    except yaml.YAMLError as e:
+        raise ValueError(f"invalid YAML: {e}") from None
 
 
 def dumps_decimal(value: Any) -> str:
@@ -212,9 +288,17 @@ def check_sources(sources: list[Source], repomap: RepoMap) -> tuple[list[Issue],
             index.texts[src.id] = actual
         elif isinstance(src, JsonSpan):
             try:
-                doc = load_json_decimal(path)
+                doc = load_data_decimal(path)
             except (ValueError, UnicodeDecodeError, RecursionError, OSError) as e:
-                issues.append(_issue(i, "JSON_PARSE_ERROR", f"{src.file} could not be parsed as JSON: {e}"))
+                suffix = path.suffix.lower()
+                if suffix not in (".json", *YAML_SUFFIXES):
+                    issues.append(_issue(i, "NOT_A_DATA_FILE",
+                                         f"{src.file} is not a JSON or YAML data file; json sources need .json, .yml "
+                                         f"or .yaml. Cite {src.file} as kind text (file + start_line + end_line) and, "
+                                         f"for a table, write the number as a plain string cell"))
+                    continue
+                fmt = "YAML" if suffix in YAML_SUFFIXES else "JSON"
+                issues.append(_issue(i, "JSON_PARSE_ERROR", f"{src.file} could not be parsed as {fmt}: {e}"))
                 continue
             try:
                 resolved = resolve_pointer(doc, src.pointer)

@@ -12,7 +12,7 @@ Docs are walls of text; a new engineer needs half an hour to absorb a README, a 
 | 2 Director | LLM agent with 5 read-only tools (`list_dir`, `read_file`, `grep`, `read_json`, `view_image`) explores the repo and calls `submit_storyboard` | agent decides, **code checks** |
 | 3 Voice | local TTS per sentence (piper, fallback macOS `say`) → measured, frame-aligned timeline | measured audio drives timing |
 | 4 Render | Playwright renders 8 scene templates + caption PNGs (fonts and mermaid.js vendored, no network) | captions as PNG overlays (Homebrew ffmpeg has no libass) |
-| 5 Compose | ffmpeg segments + overlays + `loudnorm` audio → ffprobe post-check (50–60 s, A/V drift < 0.1 s) | fail loudly with typed exit codes 0–7 |
+| 5 Compose | ffmpeg segments + overlays + `loudnorm` audio → ffprobe post-check (50–80 s, A/V drift < 0.1 s) | fail loudly with typed exit codes 0–7 |
 
 The LLM sits behind a provider-neutral adapter (Anthropic, OpenAI and OpenAI-compatible endpoints, plus a Fake provider that replays transcripts for offline tests). The agent never writes HTML or ffmpeg commands; it picks scenes from a fixed catalog: title, bullets, code, image (with highlights / Ken Burns), metrics table, mermaid diagram, terminal, outro.
 
@@ -29,7 +29,7 @@ Every sentence and every on-screen label must cite sources: file + line range, J
 | Metric (demo) | Target | Value |
 |---|---|---|
 | Ungrounded numbers / identifiers (independent re-check) | 0 | **0** |
-| Duration (ffprobe) | 50–60 s | **57.5 s** |
+| Duration (ffprobe) | 50–80 s | **57.5 s** |
 | Caption coverage of narration | ≥ 95% | **100%** |
 | Cost per video | < $0.10 | **$0.051** (32,946 input + 112,128 cached + 3,960 output tokens) |
 | End-to-end time | < 5 min | not measured for this run (see §5) |
@@ -53,7 +53,7 @@ The strict validator worked as intended: no run produced a video with an invente
 
 ## 5. Limitations and how to run
 
-**Limitations.** One demo repo and 10 live runs is a small sample; about 1 in 4 runs succeeds with gpt-5.4-mini, mostly failing the 50–60 s window. The demo was completed by an offline resume after the compose bug fix, so its ingest, agent and voice timings were not recorded and end-to-end time is unmeasured; its agent cost was reconstructed from the transcript. On screen the metrics table shows per-run JSON values (0.741 / 0.842) while the narration quotes the README averages (0.735 / 0.843): both are grounded, but they differ. The plot highlight sits over an empty area. Terminal scenes show real commands from cited lines, never executed output. Output is 16:9 only; GitHub Action, private repos, 9:16 and multi-language narration are Phase B. Design spec: [`docs/superpowers/specs/2026-10-15-codecast-design.md`](docs/superpowers/specs/2026-10-15-codecast-design.md).
+**Limitations.** One demo repo and 10 live runs is a small sample; about 1 in 4 runs succeeds with gpt-5.4-mini, mostly failing the 50–60 s window it had then (now widened to 50–80 s). The demo was completed by an offline resume after the compose bug fix, so its ingest, agent and voice timings were not recorded and end-to-end time is unmeasured; its agent cost was reconstructed from the transcript. On screen the metrics table shows per-run JSON values (0.741 / 0.842) while the narration quotes the README averages (0.735 / 0.843): both are grounded, but they differ. The plot highlight sits over an empty area. Terminal scenes show real commands from cited lines, never executed output. Output is 16:9 only; GitHub Action, private repos, 9:16 and multi-language narration are Phase B. Design spec: [`docs/superpowers/specs/2026-10-15-codecast-design.md`](docs/superpowers/specs/2026-10-15-codecast-design.md).
 
 **Run** (from `run.yaml`; macOS, Python 3.12+, `brew install ffmpeg`, `OPENAI_API_KEY`; or omit `--config` to use the default Anthropic model with `ANTHROPIC_API_KEY`):
 

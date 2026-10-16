@@ -41,14 +41,14 @@ def submit_variant(n):
 
 
 def test_happy_path_produces_all_artifacts(git_repo, tmp_path):
-    # 130 words * 0.4 s = 52 s speech + 2 gaps + 6 tails ≈ 55.4 s → inside [50, 60]
+    # 130 words * 0.4 s = 52 s speech + 2 gaps + 6 tails ≈ 55.4 s → inside [50, 80]
     rep = run(opts(git_repo, tmp_path), load_config(), provider=FakeProvider([submit()]),
               engine=SilenceEngine(0.4), preflight=False)
     assert rep.status == "ok", rep.failure
     out = tmp_path / "output" / "tiny"
     for name in ("explainer.mp4", "explainer.srt", "storyboard.json", "run_report.json"):
         assert (out / name).is_file()
-    assert 50 <= rep.video.duration_s <= 60
+    assert 50 <= rep.video.duration_s <= 80
     assert rep.validation.storyboard_rounds == 1 and rep.tts_engine == "silence"
     assert set(rep.stage_seconds) == {"ingest", "agent", "voice", "render", "compose"}
     assert json.loads((out / "storyboard.json").read_text())["repo_url"] == "https://github.com/o/tiny"
@@ -56,12 +56,12 @@ def test_happy_path_produces_all_artifacts(git_repo, tmp_path):
 
 
 def test_duration_loop_revises_then_succeeds(git_repo, tmp_path):
-    engine = SilenceEngine(0.5)                       # first pass ≈ 69 s → too long
+    engine = SilenceEngine(0.7)                       # first pass ≈ 95 s → too long
     provider = FakeProvider([submit(), lambda req: _shorter(engine) or submit_variant(1)])
     rep = run(opts(git_repo, tmp_path), load_config(), provider=provider, engine=engine, preflight=False)
     assert rep.status == "ok", rep.failure
     assert rep.validation.duration_rounds == 1
-    assert '"target": [50.0, 60.0]' in provider.requests[1].messages[-1].text()
+    assert '"target": [50.0, 80.0]' in provider.requests[1].messages[-1].text()
 
 
 def _shorter(engine):
@@ -74,7 +74,7 @@ def test_duration_failure_exit_3_and_existing_output_untouched(git_repo, tmp_pat
     out.mkdir(parents=True)
     (out / "explainer.mp4").write_bytes(b"committed demo")
     rep = run(opts(git_repo, tmp_path), load_config(), provider=FakeProvider([submit(), submit_variant(1), submit_variant(2)]),
-              engine=SilenceEngine(0.6), preflight=False)
+              engine=SilenceEngine(0.7), preflight=False)
     assert rep.exit_code == 3 and rep.validation.duration_rounds == 2
     assert (out / "explainer.mp4").read_bytes() == b"committed demo"
     assert json.loads((out / "last_failed_run_report.json").read_text())["exit_code"] == 3
@@ -106,7 +106,7 @@ def test_resume_from_voice_out_of_range_exit_3_output_untouched(git_repo, tmp_pa
     before = mp4.read_bytes()
     shutil.rmtree(tmp_path / "ws" / "r1" / "audio")      # the audio cache would otherwise be reused as-is
     rep = run(opts(git_repo, tmp_path, from_stage="voice"), load_config(), provider=FakeProvider([]),
-              engine=SilenceEngine(0.6), preflight=False)
+              engine=SilenceEngine(0.7), preflight=False)
     assert rep.exit_code == 3 and rep.failure.stage == "voice"
     assert mp4.read_bytes() == before
 

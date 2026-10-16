@@ -15,7 +15,7 @@ from codecast.config import load_config
 from codecast.errors import IngestError
 from codecast.grounding.validator import ValidationContext, validate_submission
 from codecast.ingest.repomap import build_repomap
-from codecast.models import RepoMap, Storyboard
+from codecast.models import DURATION_RANGE_S, RepoMap, Storyboard
 from codecast.report import RunReport
 
 _TS = re.compile(r"(\d+):(\d+):(\d+),(\d+)\s*-->\s*(\d+):(\d+):(\d+),(\d+)")
@@ -94,7 +94,8 @@ def evaluate(out_dir: Path, *, reclone: bool = True, source: str | None = None,
                         None if ungrounded is None else ungrounded == 0))
     rows.append(EvalRow("Other re-check issues", "0", "skipped" if other is None else str(other),
                         None if other is None else other == 0))
-    rows.append(EvalRow("Duration (ffprobe)", "50–60 s", f"{dur['format']:.1f} s", 50 <= dur["format"] <= 60))
+    lo, hi = DURATION_RANGE_S
+    rows.append(EvalRow("Duration (ffprobe)", f"{lo:.0f}–{hi:.0f} s", f"{dur['format']:.1f} s", lo <= dur["format"] <= hi))
     narr = report.video.narration_s if report.video else 0.0
     coverage = srt_covered_seconds(out_dir / "explainer.srt") / narr if narr else 0.0
     rows.append(EvalRow("Caption coverage of narration", "≥ 95%", f"{coverage:.0%}", coverage >= 0.95))

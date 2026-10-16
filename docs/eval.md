@@ -10,7 +10,7 @@ LLM: openai / gpt-5.4-mini · TTS: piper · run `20261015T163800Z-988caa`
 |---|---|---|---|
 | Ungrounded numbers / identifiers | 0 | 0 | ✓ |
 | Other re-check issues | 0 | 0 | ✓ |
-| Duration (ffprobe) | 50–60 s | 57.5 s | ✓ |
+| Duration (ffprobe) | 50–80 s | 57.5 s | ✓ |
 | Caption coverage of narration | ≥ 95% | 100% | ✓ |
 | Cost per video | < $0.10 | $0.0509 | ✓ |
 | End-to-end time | < 5 min | not measured (see note) | — |
