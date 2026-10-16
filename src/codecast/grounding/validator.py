@@ -164,7 +164,7 @@ def _grounding_issues(sb: Storyboard, index: SourceIndex) -> list[Issue]:
     return issues
 
 
-MIN_SCENES, MAX_SCENES = 4, 8
+MIN_SCENES, MAX_SCENES = 4, 10
 MIN_WORDS, MAX_WORDS = 110, 200  # ~45-80 s of piper speech plus scene pauses
 TARGET_WORDS = 155
 MAX_SENTENCE_WORDS = 30

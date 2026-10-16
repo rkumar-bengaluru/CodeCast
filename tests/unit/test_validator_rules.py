@@ -1,3 +1,4 @@
+import copy
 import pytest
 
 from codecast.grounding.validator import ValidationContext, output_allowed, validate_submission
@@ -19,6 +20,16 @@ def test_scene_count_and_order(tiny_repo):
     raw = valid_submission()
     raw["scenes"] = raw["scenes"][1:4]
     assert {"SCENE_COUNT", "FIRST_SCENE", "LAST_SCENE"} <= codes(run(tiny_repo, raw))
+
+
+@pytest.mark.parametrize("n_middle,ok", [(8, True), (9, False)])
+def test_scene_count_upper_limit_is_ten(tiny_repo, n_middle, ok):
+    raw = valid_submission()
+    bullets = raw["scenes"][1]
+    raw["scenes"] = [raw["scenes"][0], *[copy.deepcopy(bullets) for _ in range(n_middle)], raw["scenes"][-1]]
+    for sc in raw["scenes"][1:-1]:
+        sc["narration"] = sc["narration"][:1]
+    assert ("SCENE_COUNT" in codes(run(tiny_repo, raw))) is not ok
 
 
 def test_word_count_bounds(tiny_repo):
