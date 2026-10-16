@@ -17,7 +17,8 @@ def test_media_durations():
 @pytest.mark.parametrize("fmt,v,a,ok", [
     (55.0, 55.0, 55.02, True),
     (49.9, 49.9, 49.9, False),
-    (60.2, 60.2, 60.2, False),
+    (60.2, 60.2, 60.2, True),
+    (80.2, 80.2, 80.2, False),
     (55.0, 55.0, 55.2, False),
 ])
 def test_post_check(monkeypatch, tmp_path, fmt, v, a, ok):

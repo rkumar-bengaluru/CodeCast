@@ -40,7 +40,7 @@ def test_default_max_steps():
 
 def test_prompt_mentions_catalog_and_rules():
     p = load_director_prompt()
-    for word in ("submit_storyboard", "metrics_table", "ken_burns", "110", "170", "letters only"):
+    for word in ("submit_storyboard", "metrics_table", "ken_burns", "110", "200", "50–80", "letters only"):
         assert word in p
 
 

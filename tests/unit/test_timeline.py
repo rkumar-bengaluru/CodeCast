@@ -63,7 +63,7 @@ def test_duration_feedback(tmp_path):
     sb = storyboard()
     tl = synthesize_storyboard(sb, SilenceEngine(0.5), tmp_path, gap_s=0.15, tail_s=0.5)
     data = json.loads(duration_feedback(tl, sb))
-    assert data["target"] == [50.0, 60.0] and data["total"] == pytest.approx(tl.total)
+    assert data["target"] == [50.0, 80.0] and data["total"] == pytest.approx(tl.total)
     assert len(data["per_scene_seconds"]) == 6
     assert "shorten" in data["instruction"]
 
@@ -74,7 +74,7 @@ def test_duration_feedback_gives_a_target_word_count(tmp_path):
     data = json.loads(duration_feedback(tl, sb))
     words = data["spoken_words"]
     wps = words / tl.narration_seconds
-    target_words = words + round((55.0 - tl.total) * wps)
+    target_words = words + round((65.0 - tl.total) * wps)
     assert data["target_words"] == target_words
     assert f"from {words} to about {target_words} words" in data["instruction"]
     assert "unchanged narration will fail again" in data["instruction"]

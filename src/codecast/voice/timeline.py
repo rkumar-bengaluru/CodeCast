@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from codecast.errors import CodecastError
 from codecast.grounding.validator import MAX_WORDS, MIN_WORDS
-from codecast.models import Storyboard, scene_id
+from codecast.models import DURATION_RANGE_S, Storyboard, scene_id
 from codecast.voice.engines import TTSEngine, wav_duration
 
 FPS = 30
@@ -129,7 +129,7 @@ def synthesize_storyboard(sb: Storyboard, engine: TTSEngine, cache_dir: Path, *,
     return build_timeline(scenes, gap_s=gap_s, tail_s=tail_s)
 
 
-def duration_feedback(timeline: Timeline, sb: Storyboard, *, target: tuple[float, float] = (50.0, 60.0)) -> str:
+def duration_feedback(timeline: Timeline, sb: Storyboard, *, target: tuple[float, float] = DURATION_RANGE_S) -> str:
     words = sum(len(s.text.split()) for sc in sb.scenes for s in sc.narration)
     wps = words / timeline.narration_seconds if timeline.narration_seconds else 2.5
     lo, hi = target

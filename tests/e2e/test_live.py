@@ -21,7 +21,7 @@ def test_demo_repo(tmp_path):
     rep = run(RunOptions(repo="https://github.com/rkumar-bengaluru/video-classifier", out_dir=tmp_path / "out",
                          workspace=tmp_path / "ws"), cfg())
     assert rep.status == "ok", rep.failure
-    assert 50 <= rep.video.duration_s <= 60
+    assert 50 <= rep.video.duration_s <= 80
     assert ev.evaluate(tmp_path / "out" / "video-classifier", eval_log=tmp_path / "eval.md") == 0
 
 

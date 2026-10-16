@@ -80,7 +80,7 @@ def test_unchanged_narration_rejected_on_revision(tiny_repo):
     first = s(valid_submission()).storyboard
     s.begin_revision(first)
     out = s(valid_submission())
-    assert not out.accepted and "NARRATION_UNCHANGED" in out.feedback and "125" in out.feedback
+    assert not out.accepted and "NARRATION_UNCHANGED" in out.feedback and "155" in out.feedback
     changed = valid_submission()
     changed["scenes"][2]["narration"][0]["text"] += " Really quite tiny."
     assert s(changed).accepted
@@ -91,7 +91,7 @@ def test_word_count_message_has_target(tiny_repo):
     raw["scenes"][5]["narration"][0]["text"] = "Short outro."
     raw["scenes"][1]["narration"] = raw["scenes"][1]["narration"][:1]
     out = submitter(tiny_repo)(raw)
-    assert "WORD_COUNT" in out.feedback and "125" in out.feedback
+    assert "WORD_COUNT" in out.feedback and "155" in out.feedback
 
 
 def test_text_span_with_trailing_newline_stored_canonical(tiny_repo):

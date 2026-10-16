@@ -165,8 +165,8 @@ def _grounding_issues(sb: Storyboard, index: SourceIndex) -> list[Issue]:
 
 
 MIN_SCENES, MAX_SCENES = 4, 8
-MIN_WORDS, MAX_WORDS = 110, 170
-TARGET_WORDS = 125
+MIN_WORDS, MAX_WORDS = 110, 200  # ~45-80 s of piper speech plus scene pauses
+TARGET_WORDS = 155
 MAX_SENTENCE_WORDS = 30
 MAX_BULLETS_TOTAL = 12
 _MULTI_SENTENCE = re.compile(r"[.!?]\s+\S")

@@ -14,7 +14,7 @@ from typing import Iterable
 
 from codecast.compose.segments import build_audio, concat_list, ken_burns_frames, segment_command
 from codecast.errors import CodecastError, RenderError
-from codecast.models import SceneFrames
+from codecast.models import DURATION_RANGE_S, SceneFrames
 from codecast.voice.timeline import Timeline
 
 MAX_AV_DRIFT = 0.1
@@ -102,7 +102,7 @@ def media_durations(info: dict) -> dict:
     return out
 
 
-def post_check(mp4: Path, *, lo: float = 50.0, hi: float = 60.0) -> dict:
+def post_check(mp4: Path, *, lo: float = DURATION_RANGE_S[0], hi: float = DURATION_RANGE_S[1]) -> dict:
     info = probe(mp4)
     d = media_durations(info)
     if d["video"] is None or d["audio"] is None:
@@ -156,7 +156,7 @@ def _segment(sf: SceneFrames, workdir: Path) -> Path:
 
 
 def compose_video(frames: list[SceneFrames], timeline: Timeline, out_mp4: Path, workdir: Path, *,
-                  lo: float = 50.0, hi: float = 60.0, workers: int = 4) -> dict:
+                  lo: float = DURATION_RANGE_S[0], hi: float = DURATION_RANGE_S[1], workers: int = 4) -> dict:
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
     with ThreadPoolExecutor(max_workers=workers) as pool:
