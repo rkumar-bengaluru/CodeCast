@@ -122,3 +122,9 @@ def test_code_scene_that_cannot_fit_raises(renderer, tiny_repo, tmp_path):
     sb = _code_scene(tiny_repo, 18, 400)
     with pytest.raises(RenderError, match="minimum font size"):
         renderer.render_scene(sb, 2, Path(tiny_repo.root), tmp_path)
+
+
+def test_code_scene_at_the_validator_width_limit_renders(renderer, tiny_repo, tmp_path):
+    from codecast.grounding.validator import MAX_CODE_COLS
+    sb = _code_scene(tiny_repo, 18, MAX_CODE_COLS)
+    assert len(renderer.render_scene(sb, 2, Path(tiny_repo.root), tmp_path).frames) == 1

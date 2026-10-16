@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import textwrap
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, localcontext
 from pathlib import Path
@@ -58,6 +59,11 @@ def read_text_normalized(path: Path) -> str:
 
 def read_lines(path: Path) -> list[str]:
     return read_text_normalized(path).splitlines()
+
+
+def code_display_text(text: str) -> str:
+    """Code as a code scene shows it: tabs expanded to 8 columns, indentation shared by all lines removed."""
+    return textwrap.dedent(text.expandtabs(8))
 
 
 def load_json_decimal(path: Path) -> Any:

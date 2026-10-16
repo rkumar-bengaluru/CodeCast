@@ -14,7 +14,7 @@ from pygments.lexers import TextLexer, get_lexer_for_filename
 from pygments.util import ClassNotFound
 
 from codecast.errors import RenderError
-from codecast.grounding.spans import format_cell, load_data_decimal, resolve_pointer
+from codecast.grounding.spans import code_display_text, format_cell, load_data_decimal, resolve_pointer
 from codecast.ingest.sandbox import Sandbox, SandboxError
 from codecast.models import (
     Box, BulletsScene, CellRef, CodeScene, DiagramScene, ImageScene, MetricsTableScene, OutroScene,
@@ -40,7 +40,7 @@ def highlight_code(span: TextSpan, highlight_lines: list[int]) -> tuple[str, str
         lexer = TextLexer(stripnl=False)
     fmt = HtmlFormatter(linenos="table", linenostart=span.start_line, cssclass="hl", style="github-dark",
                         hl_lines=[h - span.start_line + 1 for h in highlight_lines])
-    return highlight(span.text, lexer, fmt), fmt.get_style_defs(".hl")
+    return highlight(code_display_text(span.text), lexer, fmt), fmt.get_style_defs(".hl")
 
 
 def _cell(cell, sb: Storyboard, repo_root: Path) -> dict:

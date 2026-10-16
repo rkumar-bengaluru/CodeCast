@@ -59,6 +59,15 @@ def test_autoescape_review_focus_3():
     assert "&lt;script&gt;" in html and "&amp; co" in html and "a &lt; b" in html
 
 
+def test_code_highlight_drops_shared_indent():
+    from codecast.models import TextSpan
+    span = TextSpan(id="s", file="src/app.py", start_line=7, end_line=8, text="        if x:\n            y()")
+    html, _ = highlight_code(span, [])
+    assert ">7<" in html and ">8<" in html
+    assert '<span></span><span class="k">if</span>' in html     # first line starts at column 0
+    assert '\n    <span class="n">y</span>' in html             # relative indent kept
+
+
 def test_table_cell_reads_yaml_source(tiny_repo):
     from codecast.models import JsonSpan
     root = Path(tiny_repo.root)
