@@ -13,7 +13,7 @@ from codecast.grounding.numbers import (
     decimals as literal_decimals, extract_claims, identifier_grounded, number_grounded,
     source_number_literals,
 )
-from codecast.grounding.spans import SourceIndex, check_sources, format_cell
+from codecast.grounding.spans import SourceIndex, check_sources, code_display_text, format_cell
 from codecast.models import (
     BulletsScene, CellRef, CodeScene, DiagramScene, ImageScene, Issue, JsonSpan, MetricsTableScene,
     OutroScene, RepoMap, Storyboard, Submission, TerminalScene, TitleScene,
@@ -164,10 +164,12 @@ def _grounding_issues(sb: Storyboard, index: SourceIndex) -> list[Issue]:
     return issues
 
 
-MIN_SCENES, MAX_SCENES = 4, 8
+MIN_SCENES, MAX_SCENES = 4, 10
 MIN_WORDS, MAX_WORDS = 110, 200  # ~45-80 s of piper speech plus scene pauses
 TARGET_WORDS = 155
 MAX_SENTENCE_WORDS = 30
+# Widest code line the code template fits at its 18px minimum font (measured: 144 with 4-digit line numbers).
+MAX_CODE_COLS = 140
 MAX_BULLETS_TOTAL = 12
 _MULTI_SENTENCE = re.compile(r"[.!?]\s+\S")
 
@@ -249,6 +251,12 @@ def scene_rule_issues(sb: Storyboard, index: SourceIndex, ctx: ValidationContext
                 n_lines = span.end_line - span.start_line + 1
                 if n_lines > 18:
                     issues.append(Issue(path=f"{p}.span_id", code="CODE_TOO_LONG", message=f"{n_lines} lines; max 18"))
+                width = max((len(ln) for ln in code_display_text(span.text or "").splitlines()), default=0)
+                if width > MAX_CODE_COLS:
+                    issues.append(Issue(path=f"{p}.span_id", code="CODE_TOO_WIDE",
+                                        message=f"widest line is {width} characters after removing shared "
+                                                f"indentation; max {MAX_CODE_COLS}. Pick a range without the "
+                                                f"long lines"))
                 bad = [h for h in sc.highlight_lines if not span.start_line <= h <= span.end_line]
                 if bad:
                     issues.append(Issue(path=f"{p}.highlight_lines", code="HIGHLIGHT_OUT_OF_RANGE",

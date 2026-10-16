@@ -1,3 +1,4 @@
+import copy
 import pytest
 
 from codecast.grounding.validator import ValidationContext, output_allowed, validate_submission
@@ -19,6 +20,16 @@ def test_scene_count_and_order(tiny_repo):
     raw = valid_submission()
     raw["scenes"] = raw["scenes"][1:4]
     assert {"SCENE_COUNT", "FIRST_SCENE", "LAST_SCENE"} <= codes(run(tiny_repo, raw))
+
+
+@pytest.mark.parametrize("n_middle,ok", [(8, True), (9, False)])
+def test_scene_count_upper_limit_is_ten(tiny_repo, n_middle, ok):
+    raw = valid_submission()
+    bullets = raw["scenes"][1]
+    raw["scenes"] = [raw["scenes"][0], *[copy.deepcopy(bullets) for _ in range(n_middle)], raw["scenes"][-1]]
+    for sc in raw["scenes"][1:-1]:
+        sc["narration"] = sc["narration"][:1]
+    assert ("SCENE_COUNT" in codes(run(tiny_repo, raw))) is not ok
 
 
 def test_word_count_bounds(tiny_repo):
@@ -145,3 +156,30 @@ def test_output_allowlist(path, ok):
 
 def test_valid_submission_still_accepted(tiny_repo):
     assert run(tiny_repo, valid_submission()).issues == []
+
+
+def _code_span(tiny_repo, lines):
+    from pathlib import Path
+    from codecast.models import FileEntry
+    (Path(tiny_repo.root) / "wide.jsx").write_text("\n".join(lines) + "\n")
+    tiny_repo.files.append(FileEntry(path="wide.jsx", size=1, kind="text"))
+    raw = valid_submission()
+    raw["sources"].append({"kind": "text", "id": "wide", "file": "wide.jsx", "start_line": 1,
+                           "end_line": len(lines)})
+    raw["scenes"][2]["span_id"] = "wide"
+    raw["scenes"][2]["highlight_lines"] = []
+    return run(tiny_repo, raw)
+
+
+@pytest.mark.parametrize("lines,too_wide", [
+    (["x" * 141, "y = 1"], True),
+    (["x" * 140, "y = 1"], False),
+    ([" " * 10 + "x" * 139, " " * 12 + "y = 1"], False),   # shared indent is dropped before measuring
+    (["\t\t" + "x" * 130, "y = 1"], True),                  # tabs count as 8 columns
+])
+def test_code_width_limit(tiny_repo, lines, too_wide):
+    res = _code_span(tiny_repo, lines)
+    issues = [i for i in res.issues if i.code == "CODE_TOO_WIDE"]
+    assert bool(issues) is too_wide
+    if too_wide:
+        assert issues[0].path == "scenes[2].span_id" and "max 140" in issues[0].message
