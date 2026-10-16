@@ -83,13 +83,13 @@ def on_screen_texts(scene) -> list[tuple[str, str]]:
 def _reference_issues(sb: Storyboard, index: SourceIndex) -> list[Issue]:
     issues: list[Issue] = []
 
-    def need(sid: str, path: str, kind: str | None) -> None:
+    def need(sid: str, path: str, kind: str | None, hint: str = "") -> None:
         span = sb.sources.get(sid)
         if span is None:
             issues.append(Issue(path=path, code="UNKNOWN_SOURCE_ID", message=f"source {sid!r} is not declared"))
         elif kind and span.kind != kind:
             issues.append(Issue(path=path, code="WRONG_SOURCE_KIND",
-                                message=f"source {sid!r} is {span.kind}, expected {kind}"))
+                                message=f"source {sid!r} is {span.kind}, expected {kind}{hint}"))
 
     for i, sc in enumerate(sb.scenes):
         for j, sent in enumerate(sc.narration):
@@ -103,13 +103,18 @@ def _reference_issues(sb: Storyboard, index: SourceIndex) -> list[Issue]:
             for r, row in enumerate(sc.rows):
                 for c, cell in enumerate(row):
                     if isinstance(cell, CellRef):
-                        need(cell.span_id, f"scenes[{i}].rows[{r}][{c}]", "json")
+                        need(cell.span_id, f"scenes[{i}].rows[{r}][{c}]", "json", _CELL_KIND_HINT)
         elif isinstance(sc, TerminalScene):
             for k, sid in enumerate(sc.command_span_ids):
                 need(sid, f"scenes[{i}].command_span_ids[{k}]", "text")
             if sc.output_span_id:
                 need(sc.output_span_id, f"scenes[{i}].output_span_id", "text")
     return issues
+
+
+_CELL_KIND_HINT = ("; a {\"span_id\": ...} cell needs a json source (a .json/.yml/.yaml file + pointer). If the number "
+                   "only appears in a text span, write it as a plain string cell (e.g. \"57.1\", copied exactly) "
+                   "and cite that text span in this scene's narration")
 
 
 def _ground(text: str, ids: list[str], index: SourceIndex, path: str) -> list[Issue]:

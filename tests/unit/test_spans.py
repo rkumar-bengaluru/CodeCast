@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from codecast.grounding.spans import (
-    PointerError, check_sources, dumps_decimal, format_cell, load_json_decimal, read_lines,
+    PointerError, check_sources, dumps_decimal, format_cell, load_data_decimal, load_json_decimal, read_lines,
     resolve_pointer, values_equal,
 )
 from codecast.models import FileEntry, ImageRef, JsonSpan, TextSpan
@@ -80,7 +80,7 @@ def test_check_sources_reports_every_failure(tiny_repo):
     codes = sorted(i.code for i in issues)
     assert codes == sorted([
         "SPAN_TEXT_MISMATCH", "DUPLICATE_SOURCE_ID", "SPAN_FILE_MISSING", "SPAN_RANGE_INVALID",
-        "SPAN_NOT_TEXT", "JSON_POINTER_UNRESOLVED", "JSON_VALUE_MISMATCH", "JSON_PARSE_ERROR",
+        "SPAN_NOT_TEXT", "JSON_POINTER_UNRESOLVED", "JSON_VALUE_MISMATCH", "NOT_A_DATA_FILE",
         "IMAGE_NOT_FOUND",
     ])
     assert all(i.path.startswith("sources[") for i in issues)
@@ -207,3 +207,93 @@ def test_json_span_without_value_is_filled(tiny_repo):
 def test_json_span_explicit_null_is_still_compared(tiny_repo):
     issues, _ = check_sources([JsonSpan(id="f", file="metrics.json", pointer="/models/large@8/f1", value=None)], tiny_repo)
     assert [i.code for i in issues] == ["JSON_VALUE_MISMATCH"]
+
+
+LEADERBOARD_YML = """\
+- dirname: 2025-02-25-20-23-07--gemini-pro
+  model: Gemini 2.0 Pro exp-02-05
+  pass_rate_1: 20.4
+  pass_num_1: 46
+  total_cost: 0.0000
+  date: 2025-02-25
+"""
+
+
+def _add_yaml(repo, name="board.yml", text=LEADERBOARD_YML):
+    root = Path(repo.root)
+    (root / name).write_text(text)
+    repo.files.append(FileEntry(path=name, size=len(text), kind="text"))
+    return root / name
+
+
+def test_yaml_loads_floats_as_exact_decimals_and_dates_as_strings(tiny_repo):
+    doc = load_data_decimal(_add_yaml(tiny_repo))
+    assert doc[0]["pass_rate_1"] == Decimal("20.4")
+    assert str(doc[0]["total_cost"]) == "0.0000"
+    assert doc[0]["pass_num_1"] == 46
+    assert doc[0]["date"] == "2025-02-25"
+
+
+@pytest.mark.parametrize("name", ["board.yml", "board.yaml"])
+def test_json_span_resolves_into_yaml(tiny_repo, name):
+    _add_yaml(tiny_repo, name)
+    spans = [JsonSpan(id="p", file=name, pointer="/0/pass_rate_1"),
+             JsonSpan(id="row", file=name, pointer="/0")]
+    issues, index = check_sources(spans, tiny_repo)
+    assert issues == []
+    assert index.values["p"] == Decimal("20.4") and index.texts["p"] == "20.4"
+    assert index.spans["row"].value["date"] == "2025-02-25"
+
+
+def test_malformed_yaml_is_a_parse_error(tiny_repo):
+    _add_yaml(tiny_repo, text="a: [1, 2\n")
+    issues, _ = check_sources([JsonSpan(id="p", file="board.yml", pointer="/a")], tiny_repo)
+    assert [i.code for i in issues] == ["JSON_PARSE_ERROR"]
+    assert "YAML" in issues[0].message
+
+
+JSONC = """\
+{
+    // line comment
+    "deepseek/deepseek-reasoner": {
+        "max_input_tokens": 128000,
+        //"supports_function_calling": true,
+        "url": "https://example.com/a//b", /* block
+        comment */ "note": "has /* not a comment */ inside",
+        "cost": 0.00000028,
+    },
+}
+"""
+
+
+def test_json_with_comments_and_trailing_commas_loads(tiny_repo):
+    path = _add_yaml(tiny_repo, "meta.json", JSONC)
+    doc = load_data_decimal(path)
+    entry = doc["deepseek/deepseek-reasoner"]
+    assert entry["max_input_tokens"] == 128000 and entry["cost"] == Decimal("0.00000028")
+    assert entry["url"] == "https://example.com/a//b"
+    assert entry["note"] == "has /* not a comment */ inside"
+    assert "supports_function_calling" not in entry
+
+
+def test_broken_json_still_fails_even_after_comment_stripping(tiny_repo):
+    _add_yaml(tiny_repo, "bad.json", '{"a": 1 // missing brace\n')
+    issues, _ = check_sources([JsonSpan(id="b", file="bad.json", pointer="/a")], tiny_repo)
+    assert [i.code for i in issues] == ["JSON_PARSE_ERROR"]
+
+
+def test_pointer_hint_for_unescaped_slash_key(tiny_repo):
+    _add_yaml(tiny_repo, "meta.json", JSONC)
+    issues, _ = check_sources([JsonSpan(id="m", file="meta.json",
+                                        pointer="/deepseek/deepseek-reasoner/max_input_tokens")], tiny_repo)
+    assert [i.code for i in issues] == ["JSON_POINTER_UNRESOLVED"]
+    assert "/deepseek~1deepseek-reasoner" in issues[0].message
+    issues, index = check_sources([JsonSpan(id="m", file="meta.json",
+                                            pointer="/deepseek~1deepseek-reasoner/max_input_tokens")], tiny_repo)
+    assert issues == [] and index.values["m"] == 128000
+
+
+def test_json_source_on_non_data_file_is_rejected_with_hint(tiny_repo):
+    issues, _ = check_sources([JsonSpan(id="r", file="README.md", pointer="/0/x")], tiny_repo)
+    assert [i.code for i in issues] == ["NOT_A_DATA_FILE"]
+    assert "kind text" in issues[0].message and "README.md" in issues[0].message

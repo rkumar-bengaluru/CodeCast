@@ -181,3 +181,25 @@ def test_deeply_nested_json_becomes_error(tiny_repo):
 def test_out_of_range_numbers_become_errors(tiny_repo, args):
     ex, text = run(box(tiny_repo), "read_file", **args)
     assert ex.result.is_error
+
+
+def test_read_json_reads_yaml(tiny_repo):
+    root = Path(tiny_repo.root)
+    (root / "board.yml").write_text("- model: gemini\n  pass_rate_1: 20.4\n")
+    tiny_repo.files.append(FileEntry(path="board.yml", size=40, kind="text"))
+    ex, text = run(box(tiny_repo), "read_json", path="board.yml", pointer="/0/pass_rate_1")
+    assert not ex.result.is_error and json.loads(text)["value"] == 20.4
+    (root / "bad.yml").write_text("a: [1, 2\n")
+    tiny_repo.files.append(FileEntry(path="bad.yml", size=9, kind="text"))
+    ex, text = run(box(tiny_repo), "read_json", path="bad.yml")
+    assert ex.result.is_error and "YAML" in text
+
+
+def test_read_json_accepts_comments_and_hints_slash_keys(tiny_repo):
+    root = Path(tiny_repo.root)
+    (root / "meta.json").write_text('{\n  // c\n  "a/b": {"n": 1},\n}\n')
+    tiny_repo.files.append(FileEntry(path="meta.json", size=30, kind="text"))
+    ex, text = run(box(tiny_repo), "read_json", path="meta.json", pointer="/a~1b/n")
+    assert not ex.result.is_error and json.loads(text)["value"] == 1
+    ex, text = run(box(tiny_repo), "read_json", path="meta.json", pointer="/a/b/n")
+    assert ex.result.is_error and "/a~1b" in text

@@ -119,3 +119,35 @@ def test_ungrounded_message_explains_a_claim_seen_only_in_a_cited_pointer(tiny_r
     msg = bad[0].message
     assert "large@8" in msg and "only in the pointer of 'f1'" in msg
     assert "add one of ['models'] to this sentence's source_ids, or remove large@8" in msg
+
+
+def test_yaml_json_source_fills_table_cell_and_grounds_narration(tiny_repo):
+    from pathlib import Path
+    from codecast.models import FileEntry
+    (Path(tiny_repo.root) / "board.yml").write_text("- model: large@8\n  pass_rate_1: 20.4\n")
+    tiny_repo.files.append(FileEntry(path="board.yml", size=36, kind="text"))
+    raw = valid_submission()
+    raw["sources"].append({"kind": "json", "id": "pr", "file": "board.yml", "pointer": "/0/pass_rate_1"})
+    table = raw["scenes"][3]
+    table["rows"][0][1] = {"span_id": "pr"}
+    table["narration"][0] = {"text": "The large@8 model reaches a pass rate of 20.4 on the held out set.",
+                             "source_ids": ["pr", "models", "readme"]}
+    res = validate_submission(raw, ctx(tiny_repo))
+    assert res.issues == [] and res.ok
+
+
+def test_cell_citing_text_source_explains_plain_string_route(tiny_repo):
+    raw = valid_submission()
+    raw["scenes"][3]["rows"][0][1] = {"span_id": "readme"}
+    res = validate_submission(raw, ctx(tiny_repo))
+    issue = next(i for i in res.issues if i.code == "WRONG_SOURCE_KIND")
+    assert issue.path == "scenes[3].rows[0][1]" and "plain string cell" in issue.message
+
+
+def test_number_as_plain_string_cell_grounded_by_text_span(tiny_repo):
+    raw = valid_submission()
+    raw["scenes"][3]["rows"][0][1] = "0.7349"
+    raw["scenes"][3]["narration"][0] = {"text": "The large@8 model reaches an F1 score of 0.7349 on the held out set.",
+                                        "source_ids": ["readme", "models"]}
+    res = validate_submission(raw, ctx(tiny_repo))
+    assert res.issues == [] and res.ok

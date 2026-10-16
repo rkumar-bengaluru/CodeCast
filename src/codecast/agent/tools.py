@@ -13,7 +13,7 @@ from typing import Any, Callable
 from PIL import Image
 
 from codecast.errors import CodecastError
-from codecast.grounding.spans import PointerError, dumps_decimal, load_json_decimal, read_lines, resolve_pointer
+from codecast.grounding.spans import PointerError, dumps_decimal, load_data_decimal, read_lines, resolve_pointer
 from codecast.ingest.sandbox import Sandbox, SandboxError
 from codecast.llm.types import ImagePart, TextPart, ToolCallPart, ToolResultPart, ToolSpec
 from codecast.models import RepoMap, Storyboard, Submission
@@ -78,7 +78,8 @@ _SPECS = {
     "grep": ToolSpec("grep", "Search text files with a Python regular expression.",
                      _obj({"pattern": {"type": "string"}, "path_glob": {"type": "string"},
                            "max_results": {"type": "integer", "minimum": 1, "maximum": 200}}, ["pattern"])),
-    "read_json": ToolSpec("read_json", "Read the value at an RFC 6901 JSON Pointer ('' = whole document).",
+    "read_json": ToolSpec("read_json", "Read the value at an RFC 6901 JSON Pointer in a .json, .yml or .yaml file "
+                                       "('' = whole document).",
                           _obj({"path": _PATH, "pointer": {"type": "string"}}, ["path"])),
     "view_image": ToolSpec("view_image", "Look at an image file from the repo.", _obj({"path": _PATH}, ["path"])),
 }
@@ -91,7 +92,7 @@ def _submit_spec() -> ToolSpec:
     return ToolSpec("submit_storyboard",
                     "Submit the complete storyboard. Returns 'accepted' or a list of validation errors to fix. "
                     "Cite text by file + start_line + end_line (omit `text`; the tool fills the exact lines). "
-                    "Cite JSON by file + pointer (omit `value`).",
+                    "Cite JSON or YAML data by file + pointer (omit `value`).",
                     {"type": "object", "properties": {"storyboard": schema}, "required": ["storyboard"],
                      "$defs": defs})
 
@@ -242,7 +243,7 @@ class ToolBox:
 
     def _t_read_json(self, call_id: str, path: str, pointer: str = "") -> ToolExecution:
         rel, full = self._entry(path, "text")
-        value = resolve_pointer(load_json_decimal(full), pointer)
+        value = resolve_pointer(load_data_decimal(full), pointer)
         text = dumps_decimal(value)
         if len(text.encode()) > MAX_RESULT_BYTES:
             if isinstance(value, dict):
