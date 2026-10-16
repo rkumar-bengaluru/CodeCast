@@ -4,3 +4,4 @@ llm:
   provider: openai
   model: gpt-5.4-mini
   api_key_env: OPENAI_API_KEY
+  max_tokens: 4096
