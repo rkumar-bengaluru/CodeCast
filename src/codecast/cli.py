@@ -17,7 +17,7 @@ def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="codecast", description="GitHub repo → grounded explainer video")
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="generate a video")
-    r.add_argument("--repo", required=True, help="public https GitHub URL or local git path")
+    r.add_argument("--repo", required=True, help="public https GitHub URL, local git repo, or plain local folder")
     r.add_argument("--out", default="output", type=Path)
     r.add_argument("--config", type=Path)
     r.add_argument("--max-steps", type=int)
