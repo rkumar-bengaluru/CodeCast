@@ -1,0 +1,71 @@
+1
+00:00:00,000 --> 00:00:04,307
+Meet kuration-sdk, a dataset curation system for sequential data.
+
+2
+00:00:04,457 --> 00:00:08,811
+It sits between raw collection and training, preserving why windows were chosen.
+
+3
+00:00:09,333 --> 00:00:13,768
+The README says it curates large Physical AI datasets into training-ready data.
+
+4
+00:00:13,918 --> 00:00:18,551
+It cuts raw clips or time-series data into windows, then keeps the useful ones.
+
+5
+00:00:19,067 --> 00:00:23,606
+The pipeline starts with input, then chains operators, then ends in terminals.
+
+6
+00:00:23,756 --> 00:00:28,447
+That flow turns candidate windows into selected data and verified artifacts.
+
+7
+00:00:28,967 --> 00:00:33,564
+A typical chain windows data, filters bad windows, and samples evenly.
+
+8
+00:00:33,714 --> 00:00:38,068
+The same chain can dry-run first, then write the dataset when it looks right.
+
+9
+00:00:38,600 --> 00:00:43,430
+The quickstart example examines 42 candidate windows and selects 12.
+
+10
+00:00:43,580 --> 00:00:48,584
+It writes 12 shards and a reproducible config.json for the same run.
+
+11
+00:00:49,100 --> 00:00:53,531
+To try it, download the quickstart script and run python quickstart.py --out
+
+12
+00:00:53,531 --> 00:00:54,406
+quickstart-out.
+
+13
+00:00:54,556 --> 00:00:59,230
+The documented output shows the preflight, the shard count, and the reproducible
+
+14
+00:00:59,230 --> 00:00:59,931
+config path.
+
+15
+00:01:00,433 --> 00:01:04,439
+Pipelines are immutable, so every operator returns a new pipeline.
+
+16
+00:01:04,589 --> 00:01:10,046
+The artifact records schema, pipeline, and checksums, so replay stays auditable.
+
+17
+00:01:10,567 --> 00:01:14,073
+Clone the repo, run the quickstart, and inspect the shards.
+
+18
+00:01:14,223 --> 00:01:17,938
+If it helps your workflow, keep exploring the docs and examples.

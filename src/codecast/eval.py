@@ -14,6 +14,7 @@ from codecast.compose.ffmpeg import media_durations, probe
 from codecast.config import load_config
 from codecast.errors import IngestError
 from codecast.grounding.validator import ValidationContext, validate_submission
+from codecast.ingest.clone import ingest
 from codecast.ingest.repomap import build_repomap
 from codecast.models import DURATION_RANGE_S, RepoMap, Storyboard
 from codecast.report import RunReport
@@ -57,7 +58,12 @@ def _git(args: list[str], cwd: Path | None = None) -> str:
 
 
 def clone_at(source: str, commit_sha: str, dest: Path, repo_url: str) -> RepoMap:
-    src = f"file://{Path(source).resolve()}" if Path(source).exists() else source
+    if commit_sha.startswith("local-"):  # plain-folder run: re-snapshot the folder and require identical content
+        repomap = ingest(source, dest)
+        if repomap.commit_sha != commit_sha:
+            raise IngestError(f"{source} changed since the run ({repomap.commit_sha} != {commit_sha})")
+        return repomap
+    src =f"file://{Path(source).resolve()}" if Path(source).exists() else source
     _git(["clone", "--depth", "1", "--no-recurse-submodules", "--quiet", src, str(dest)])
     if _git(["rev-parse", "HEAD"], cwd=dest) != commit_sha:
         _git(["fetch", "--depth", "1", "--quiet", "origin", commit_sha], cwd=dest)
@@ -114,7 +120,7 @@ def evaluate(out_dir: Path, *, reclone: bool = True, source: str | None = None,
     eval_log = Path(eval_log)
     eval_log.parent.mkdir(parents=True, exist_ok=True)
     prior = eval_log.read_text() if eval_log.exists() else ""
-    entry = (f"## {stamp} — {sb.repo_url} @ {sb.commit_sha[:7]}\n\n"
+    entry = (f"## {stamp} — {sb.repo_url} @ {sb.commit_sha[:18 if sb.commit_sha.startswith('local-') else 7]}\n\n"
              f"LLM: {report.llm.provider} / {report.llm.model} · TTS: {report.tts_engine} · run `{report.run_id}`\n\n"
              f"{table}\n\nClarity rating: _fill in_ (rater, score, notes)\n\n")
     eval_log.write_text(entry + prior)

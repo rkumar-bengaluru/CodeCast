@@ -1,14 +1,15 @@
-"""Shallow clone at HEAD (spec §3). Public https repos or local git paths only."""
+"""Shallow clone at HEAD (spec §3). Public https repos, local git paths, or plain local folders."""
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import subprocess
 from pathlib import Path
 
 from codecast.errors import IngestError
-from codecast.ingest.repomap import build_repomap
+from codecast.ingest.repomap import IGNORED_DIRS, build_repomap
 from codecast.models import RepoMap
 
 
@@ -63,10 +64,36 @@ def _tree_bytes(root: Path) -> int:
     return total
 
 
+def _tree_digest(root: Path) -> str:
+    h = hashlib.sha256()
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames.sort()
+        for f in sorted(filenames):
+            p = Path(dirpath) / f
+            h.update(p.relative_to(root).as_posix().encode() + b"\x00")
+            if not p.is_symlink():
+                h.update(p.read_bytes())
+    return "local-" + h.hexdigest()[:12]
+
+
+def _copy_folder(src: Path, dest: Path, *, max_bytes: int, max_file_bytes: int) -> RepoMap:
+    """A local folder that is not a git repo: snapshot its current contents (no HEAD to clone)."""
+    shutil.copytree(src, dest, symlinks=True, ignore=shutil.ignore_patterns(*IGNORED_DIRS))
+    size = _tree_bytes(dest)
+    if size > max_bytes:
+        raise IngestError(f"folder is {size} bytes, which exceeds the {max_bytes}-byte limit")
+    return build_repomap(dest, src.resolve().as_posix(), _tree_digest(dest), max_file_bytes=max_file_bytes)
+
+
 def ingest(repo: str, dest: Path, *, timeout_s: float = 120, max_bytes: int = 1_000_000_000,
            max_file_bytes: int = 1_000_000) -> RepoMap:
     dest = Path(dest)
     local = Path(repo.strip()).expanduser()
+    if local.is_dir() and not (local / ".git").exists():
+        if dest.exists():
+            shutil.rmtree(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        return _copy_folder(local, dest, max_bytes=max_bytes, max_file_bytes=max_file_bytes)
     if local.exists():
         src = f"file://{local.resolve()}"
         repo_url = _local_origin(local) or local.resolve().as_posix()

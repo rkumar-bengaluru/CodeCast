@@ -54,6 +54,34 @@ def test_ingest_local_path(local_repo, tmp_path):
     assert "README.md" in paths and "uncommitted.txt" not in paths
 
 
+def test_ingest_plain_folder(tmp_path):
+    src = tmp_path / "plain"
+    (src / "pkg").mkdir(parents=True)
+    (src / "node_modules").mkdir()
+    (src / "README.md").write_text("# hi\n")
+    (src / "pkg" / "a.py").write_text("x = 1\n")
+    (src / "node_modules" / "dep.js").write_text("junk\n")
+    (src / ".gitignore").write_text("*.log\n")
+    (src / "debug.log").write_text("noise\n")
+    rm = ingest(str(src), tmp_path / "ws" / "repo")
+    assert rm.repo_url == src.resolve().as_posix()
+    assert rm.commit_sha.startswith("local-")
+    paths = {f.path for f in rm.files}
+    assert {"README.md", "pkg/a.py"} <= paths
+    assert "node_modules/dep.js" not in paths and "debug.log" not in paths
+    assert ingest(str(src), tmp_path / "ws2" / "repo").commit_sha == rm.commit_sha
+    (src / "pkg" / "a.py").write_text("x = 2\n")
+    assert ingest(str(src), tmp_path / "ws3" / "repo").commit_sha != rm.commit_sha
+
+
+def test_ingest_plain_folder_size_cap(tmp_path):
+    src = tmp_path / "plain"
+    src.mkdir()
+    (src / "a.txt").write_text("hello\n")
+    with pytest.raises(IngestError, match="exceeds"):
+        ingest(str(src), tmp_path / "ws" / "repo", max_bytes=1)
+
+
 def test_ingest_size_cap(local_repo, tmp_path):
     src, _ = local_repo
     with pytest.raises(IngestError, match="exceeds"):
@@ -86,3 +114,16 @@ def test_clone_env_never_prompts(monkeypatch, tmp_path):
     with pytest.raises(IngestError):
         ingest("https://github.com/o/r", tmp_path / "repo")
     assert seen["GIT_TERMINAL_PROMPT"] == "0" and seen["GIT_LFS_SKIP_SMUDGE"] == "1"
+
+
+def test_eval_recheck_plain_folder(tmp_path):
+    from codecast.eval import clone_at
+    src = tmp_path / "plain"
+    src.mkdir()
+    (src / "a.py").write_text("x = 1\n")
+    rm = ingest(str(src), tmp_path / "ws" / "repo")
+    again = clone_at(str(src), rm.commit_sha, tmp_path / "re" / "repo", rm.repo_url)
+    assert {f.path for f in again.files} == {"a.py"}
+    (src / "a.py").write_text("x = 2\n")
+    with pytest.raises(IngestError, match="changed since the run"):
+        clone_at(str(src), rm.commit_sha, tmp_path / "re2" / "repo", rm.repo_url)

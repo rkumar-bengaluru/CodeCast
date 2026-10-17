@@ -1,0 +1,293 @@
+{
+ "version": 1,
+ "repo_url": "C:/2026/rkumar-02/kuration-sdk-private-release",
+ "commit_sha": "local-3f8230b8b2f1",
+ "title": "kuration-sdk in a minute",
+ "sources": {
+  "readme": {
+   "kind": "text",
+   "id": "readme",
+   "file": "README.md",
+   "start_line": 18,
+   "end_line": 21,
+   "text": "**Kuration curates large Physical AI datasets into training-ready data for world\nmodels.** Point it at raw gameplay clips or time-series data or video and Kuration picks the windows worth\ntraining on, writes them as shards, and drops a config alongside so the same run can\nbe rebuilt."
+  },
+  "readme_quick": {
+   "kind": "text",
+   "id": "readme_quick",
+   "file": "README.md",
+   "start_line": 76,
+   "end_line": 101,
+   "text": "Runnable quickstart against a small sample dataset bundled with the package — no downloads,\nno data of your own required:\n\n```python\nfrom kuration import input\nfrom kuration.sample_data import sample_sessions_path\n\ndataset = (\n    input(sample_sessions_path(), time=\"t\", entity=\"device\", hz=1)\n    .window(12, stride=6)\n    .measure(\"activity\", \"std\", of=\"signal\")\n    .measure(\"fault_rate\", \"rate\", of=\"fault\")\n    .bin(\"activity\", bins=3)\n    .bin(\"fault_rate\", bins=2)\n    .split(test=1/3)\n    .sample(\"equal\", n=12)\n    .options(seed=7)\n)\n\nprint(dataset.explain().render())\ndataset.output(\"out/quickstart-out\")\n```\n\nThe result is a train/test set of shards plus a `config.json` recording the schema\nand pipeline so the same run can be rebuilt. Every shard has a SHA-256 checksum in\nthe manifest, so resume and verification are safe."
+  },
+  "overview": {
+   "kind": "text",
+   "id": "overview",
+   "file": "docs/overview.md",
+   "start_line": 3,
+   "end_line": 9,
+   "text": "Kuration is a dataset curation system for sequential data. It sits between raw collection and\ntraining: it decides which windows should enter a dataset, preserves why they were chosen, and\nwrites the arrays a training loop consumes.\n\nStart with the [guided quickstart](quickstart.md) if you want to run a pipeline now. This page\nbuilds the mental model and then shows the explicit API used for custom schemas, adapters,\nstrategies, and output contracts."
+  },
+  "pipeline": {
+   "kind": "text",
+   "id": "pipeline",
+   "file": "docs/pipeline.md",
+   "start_line": 3,
+   "end_line": 10,
+   "text": "The primary way to drive the SDK for the common case: no explicit `SchemaSpec`,\nno explicit adapter, no raw strategy dict. `kuration.input(...)` sniffs a source, infers a\nschema (via [`kuration.core.infer`](#schema-inference-kurationcoreinfer)), and returns an immutable `Pipeline`; every\noperator returns a *new* `Pipeline` (nothing is mutated in place); a terminal compiles the\nchain into the classic strategy dict and calls the existing engine\n(`curate` / `write_dataset` / `dataset_report` / `run_experiment` — see [api.md](api.md)).\nThe explicit APIs in `strategies.md`/`schema.md`/`adapters.md` remain available for custom and\ndeclarative workflows. Every compiled chain is inspectable via `.describe()` before you run it."
+  },
+  "pipeline_example": {
+   "kind": "text",
+   "id": "pipeline_example",
+   "file": "docs/pipeline.md",
+   "start_line": 414,
+   "end_line": 431,
+   "text": "pipeline = (\n    input({\"s0\": rows0, \"s1\": rows1}, time=\"t\")   # multi-source in-memory rows\n    .window(16)\n    .measure(\"hp\")\n    .filter(\"hp\", \"<=\", 50)                        # universal predicate: drop bad windows\n    .measure(\"action_entropy\", \"entropy\", of=\"action\")\n    .bin(\"action_entropy\", bins=4)                  # diversity axis\n    .sample(\"equal\", n=12)                          # uniform-bins, count path\n    .options(on_error=\"raise\")\n)\n\n# Validate the output choice and estimate work before writing anything.\nprint(\n    pipeline.output(\"out/run1\", container=\"hdf5\", dry_run=True,\n                    inspect_sources=True).render()\n)\n\nresult = pipeline.output(\"out/run1\", container=\"hdf5\")  # needs the [array] extra"
+  },
+  "output": {
+   "kind": "text",
+   "id": "output",
+   "file": "docs/output.md",
+   "start_line": 7,
+   "end_line": 17,
+   "text": "The output layer mirrors the input side: a declarative `OutputSpec` (what each timestep holds)\n+ a pluggable `OutputEncoder` (where domain logic lives) + a generic `ShardWriter` (chunking,\nshort-policy, containers, manifests). Provider-backed `media:` columns are decoded generically;\napplication-derived tensors such as action bins remain encoder plugins.\n\n## The output unit: a Track\n\nA **track** is one entity's timestep sequence — the output unit (generalizing a per-POV\nepisode/clip). `tracks_from_ticks(schema, ticks, source_id)` produces one track per entity,\neach record being that entity's fields at a timestep merged with the tick's globals. A\n**shard** is a fixed-length chunk of a track."
+  },
+  "jobs": {
+   "kind": "text",
+   "id": "jobs",
+   "file": "docs/jobs.md",
+   "start_line": 3,
+   "end_line": 6,
+   "text": "The `kur-*` CLIs run a whole pipeline from **one JSON document**. This page enumerates every\nrecognized key per job kind. The same information ships machine-readably as a JSON Schema:\n`kur-validate --print-schema` dumps it (point your editor's `$schema` at it for autocomplete),\nand `kur-validate job.json` preflights any job in milliseconds — no data read."
+  },
+  "quickstart": {
+   "kind": "text",
+   "id": "quickstart",
+   "file": "docs/quickstart.md",
+   "start_line": 3,
+   "end_line": 9,
+   "text": "In this first run, kuration will examine six small sensor sessions, score 42 candidate windows,\nselect 12 windows that cover different activity and fault patterns, write training-ready NumPy\nshards, and read one shard back. The example is deterministic, needs no download, and uses only\nthe SDK's NumPy core.\n\nExpected time: under ten minutes including installation, and normally under one minute once the\npackage is installed."
+  },
+  "quickstart_cmd": {
+   "kind": "text",
+   "id": "quickstart_cmd",
+   "file": "docs/quickstart.md",
+   "start_line": 21,
+   "end_line": 26,
+   "text": "## 2. Run the pipeline\n\n```bash\ncurl -O https://raw.githubusercontent.com/aintropy-solutions/kuration-sdk/main/examples/quickstart.py\npython quickstart.py --out quickstart-out\n```"
+  },
+  "quickstart_out": {
+   "kind": "text",
+   "id": "quickstart_out",
+   "file": "docs/quickstart.md",
+   "start_line": 30,
+   "end_line": 47,
+   "text": "```text\npreflight:\nsource: RowsAdapter (6 source(s))\nschema: inferred\nwindow: 12 steps (stride 6)\nselection: uniform-bins (count=12)\nexecution: local; errors=raise; total-pool materialization=none\noptional extras: none (NumPy core)\noutput: npz; shard_length=12; modalities=['fault', 'signal', 'temperature']\nestimate: about 42 candidate windows (bounded source sample)\nestimate: about 12 output shards; before short-policy drops and per-source split constraints\ninput: 6 sessions, 288 rows\ncuration: 42 candidate windows -> 12 selected\noutput: 12 shards in quickstart-out\nartifact: 12 shards; splits=['test', 'train']; metadata valid\nfirst shard: split=test, modalities=['_present', 'fault', 'signal', 'temperature'], signal_shape=(12,)\nreproducible config: quickstart-out/config.json\n```"
+  },
+  "failed_run": {
+   "kind": "text",
+   "id": "failed_run",
+   "file": "last_failed_run_report.json",
+   "start_line": 1,
+   "end_line": 18,
+   "text": "{\n \"run_id\": \"20261017T053441Z-6d1c36\",\n \"started_at\": \"2026-10-17T05:34:41+00:00\",\n \"ended_at\": \"2026-10-17T05:34:49+00:00\",\n \"repo_url\": \"C:\\\\\\\\2026\\\\\\\\rkumar-02\\\\\\\\kuration-sdk-private-release\\\\\\\\\",\n \"commit_sha\": null,\n \"llm\": {\n  \"provider\": \"openai\",\n  \"model\": \"gpt-5.4-mini\",\n  \"temperature\": 0.3\n },\n \"status\": \"failed\",\n \"exit_code\": 2,\n \"failure\": {\n  \"stage\": \"ingest\",\n  \"code\": \"IngestError\",\n  \"message\": \"git clone failed: fatal: 'C:\\\\2026\\\\rkumar-02\\\\kuration-sdk-private-release' does not appear to be a git repository\\nfatal: Could not read from remote repository.\\n\\nPlease make sure you have the correct access rights\\nand the repository exists.\",\n  \"traceback\": null"
+  }
+ },
+ "scenes": [
+  {
+   "narration": [
+    {
+     "text": "Meet kuration-sdk, a dataset curation system for sequential data.",
+     "source_ids": [
+      "overview"
+     ]
+    },
+    {
+     "text": "It sits between raw collection and training, preserving why windows were chosen.",
+     "source_ids": [
+      "overview"
+     ]
+    }
+   ],
+   "type": "title",
+   "heading": "kuration-sdk",
+   "subheading": "Curate sequential data into training-ready shards."
+  },
+  {
+   "narration": [
+    {
+     "text": "The README says it curates large Physical AI datasets into training-ready data.",
+     "source_ids": [
+      "readme"
+     ]
+    },
+    {
+     "text": "It cuts raw clips or time-series data into windows, then keeps the useful ones.",
+     "source_ids": [
+      "readme",
+      "overview"
+     ]
+    }
+   ],
+   "type": "bullets",
+   "heading": "What it does",
+   "items": [
+    "Cuts sources into candidate windows",
+    "Scores and filters each window",
+    "Writes shards plus config.json"
+   ]
+  },
+  {
+   "narration": [
+    {
+     "text": "The pipeline starts with input, then chains operators, then ends in terminals.",
+     "source_ids": [
+      "pipeline"
+     ]
+    },
+    {
+     "text": "That flow turns candidate windows into selected data and verified artifacts.",
+     "source_ids": [
+      "overview",
+      "pipeline"
+     ]
+    }
+   ],
+   "type": "diagram",
+   "mermaid": "flowchart LR\nA[input] --> B[windows]\nB --> C[operators]\nC --> D[shards]\nD --> E[config.json]"
+  },
+  {
+   "narration": [
+    {
+     "text": "A typical chain windows data, filters bad windows, and samples evenly.",
+     "source_ids": [
+      "pipeline_example"
+     ]
+    },
+    {
+     "text": "The same chain can dry-run first, then write the dataset when it looks right.",
+     "source_ids": [
+      "pipeline_example"
+     ]
+    }
+   ],
+   "type": "code",
+   "span_id": "pipeline_example",
+   "highlight_lines": [
+    414,
+    416,
+    418,
+    421,
+    425,
+    427,
+    431
+   ]
+  },
+  {
+   "narration": [
+    {
+     "text": "The quickstart example examines 42 candidate windows and selects 12.",
+     "source_ids": [
+      "quickstart_out"
+     ]
+    },
+    {
+     "text": "It writes 12 shards and a reproducible config.json for the same run.",
+     "source_ids": [
+      "quickstart_out",
+      "readme_quick"
+     ]
+    }
+   ],
+   "type": "metrics_table",
+   "columns": [
+    "Artifact",
+    "Detail"
+   ],
+   "rows": [
+    [
+     "Candidate windows",
+     "42"
+    ],
+    [
+     "Selected windows",
+     "12"
+    ],
+    [
+     "Output shards",
+     "12"
+    ]
+   ]
+  },
+  {
+   "narration": [
+    {
+     "text": "To try it, download the quickstart script and run python quickstart.py --out quickstart-out.",
+     "source_ids": [
+      "quickstart_cmd"
+     ]
+    },
+    {
+     "text": "The documented output shows the preflight, the shard count, and the reproducible config path.",
+     "source_ids": [
+      "quickstart_out"
+     ]
+    }
+   ],
+   "type": "terminal",
+   "command_span_ids": [
+    "quickstart_cmd"
+   ],
+   "output_span_id": null
+  },
+  {
+   "narration": [
+    {
+     "text": "Pipelines are immutable, so every operator returns a new pipeline.",
+     "source_ids": [
+      "pipeline"
+     ]
+    },
+    {
+     "text": "The artifact records schema, pipeline, and checksums, so replay stays auditable.",
+     "source_ids": [
+      "readme_quick",
+      "overview"
+     ]
+    }
+   ],
+   "type": "bullets",
+   "heading": "Why the design matters",
+   "items": [
+    "Immutable pipelines",
+    "Lazy, loud preflight",
+    "Artifact-first replay"
+   ]
+  },
+  {
+   "narration": [
+    {
+     "text": "Clone the repo, run the quickstart, and inspect the shards.",
+     "source_ids": [
+      "quickstart_cmd",
+      "quickstart_out"
+     ]
+    },
+    {
+     "text": "If it helps your workflow, keep exploring the docs and examples.",
+     "source_ids": [
+      "readme",
+      "overview"
+     ]
+    }
+   ],
+   "type": "outro",
+   "repo_url": "C:/2026/rkumar-02/kuration-sdk-private-release",
+   "cta": "Try the quickstart and inspect the shards."
+  }
+ ],
+ "llm": {
+  "provider": "openai",
+  "model": "gpt-5.4-mini"
+ }
+}

@@ -1,0 +1,62 @@
+{
+ "run_id": "20261017T072737Z-301a80",
+ "started_at": "2026-10-17T07:27:37+00:00",
+ "ended_at": "2026-10-17T07:29:05+00:00",
+ "repo_url": "C:/2026/rkumar-02/kuration-sdk-private-release",
+ "commit_sha": "local-3f8230b8b2f1",
+ "llm": {
+  "provider": "openai",
+  "model": "gpt-5.4-mini",
+  "temperature": 0.3
+ },
+ "status": "ok",
+ "exit_code": 0,
+ "failure": null,
+ "ingest": {
+  "n_files": 389,
+  "skipped_by_reason": {
+   "too_large": 2
+  }
+ },
+ "budget": {
+  "max_steps": 35,
+  "steps_used": 7,
+  "tool_calls": {
+   "read_file": 11,
+   "grep": 3,
+   "submit_storyboard": 2
+  }
+ },
+ "usage": {
+  "input": 22805,
+  "output": 2567,
+  "cache_read_input": 105216,
+  "cache_write_input": 0
+ },
+ "cost_usd": 0.036546,
+ "cost_unknown_reason": null,
+ "context": null,
+ "validation": {
+  "storyboard_rounds": 2,
+  "duration_rounds": 0,
+  "failures_by_code": {
+   "WRONG_SOURCE_KIND": 3,
+   "CODE_TOO_LONG": 1,
+   "OUTPUT_NOT_ALLOWED": 1
+  }
+ },
+ "tts_engine": "piper",
+ "stage_seconds": {
+  "ingest": 5.281,
+  "agent": 24.796,
+  "voice": 10.094,
+  "render": 9.406,
+  "compose": 22.704
+ },
+ "video": {
+  "path": "output\\kuration-sdk-private-release\\explainer.mp4",
+  "duration_s": 78.5,
+  "size_bytes": 2715479,
+  "narration_s": 73.108
+ }
+}
