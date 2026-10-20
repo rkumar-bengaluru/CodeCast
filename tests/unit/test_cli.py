@@ -1,3 +1,5 @@
+import pytest
+
 from codecast import cli
 
 
@@ -91,3 +93,29 @@ def test_failure_output_lists_paths(monkeypatch, tmp_path, capsys):
     assert err[2] == "  request sent: z.json"
     assert err[3] == f"  full log: {ws / 'r1' / 'run.log'}"
     assert err[4] == f"  run report: {ws / 'r1' / 'run_report.json'}"
+
+
+def test_compute_video_length_needs_no_repo(monkeypatch, tmp_path, capsys):
+    from codecast import estimate
+    from tests.fakes import SilenceEngine
+    from tests.unit.test_estimate import write_storyboard
+    write_storyboard(tmp_path / "run1")
+    monkeypatch.setattr(estimate, "select_engine", lambda cfg, allow_network: SilenceEngine(0.4))
+    monkeypatch.setattr(cli, "pipeline_run", lambda *a, **k: pytest.fail("pipeline must not run"))
+    assert cli.main(["run", "--run", "run1", "--compute-video-length", "--workspace", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "total" in out and f"saved: {tmp_path / 'run1' / 'length_estimate.json'}" in out
+
+
+def test_compute_video_length_requires_run(capsys):
+    assert cli.main(["run", "--compute-video-length"]) == 7
+    assert "--run" in capsys.readouterr().err
+
+
+def test_compute_video_length_rejects_from_stage():
+    assert cli.main(["run", "--run", "r", "--compute-video-length", "--from-stage", "voice"]) == 7
+
+
+def test_run_without_repo_still_rejected(capsys):
+    assert cli.main(["run"]) == 7
+    assert "--repo" in capsys.readouterr().err
