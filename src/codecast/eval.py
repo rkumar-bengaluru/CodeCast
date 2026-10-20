@@ -11,12 +11,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from codecast.compose.ffmpeg import media_durations, probe
-from codecast.config import load_config
+from codecast.config import LimitsConfig, load_config
 from codecast.errors import IngestError
 from codecast.grounding.validator import ValidationContext, validate_submission
 from codecast.ingest.clone import ingest
 from codecast.ingest.repomap import build_repomap
-from codecast.models import DURATION_RANGE_S, RepoMap, Storyboard
+from codecast.models import RepoMap, Storyboard
 from codecast.report import RunReport
 
 _TS = re.compile(r"(\d+):(\d+):(\d+),(\d+)\s*-->\s*(\d+):(\d+):(\d+),(\d+)")
@@ -82,6 +82,7 @@ def evaluate(out_dir: Path, *, reclone: bool = True, source: str | None = None,
     out_dir = Path(out_dir)
     report = RunReport.model_validate_json((out_dir / "run_report.json").read_text())
     sb = Storyboard.model_validate_json((out_dir / "storyboard.json").read_text())
+    limits = report.limits or LimitsConfig()  # judge the video by the limits its run used
     dur = media_durations(probe(out_dir / "explainer.mp4"))
     rows: list[EvalRow] = []
 
@@ -91,7 +92,7 @@ def evaluate(out_dir: Path, *, reclone: bool = True, source: str | None = None,
             repomap = clone_at(source or sb.repo_url, sb.commit_sha, Path(td) / "repo", sb.repo_url)
             cfg = load_config()
             res = validate_submission(sb.to_submission(), ValidationContext(
-                repomap=repomap, llm=sb.llm, output_allowlist=cfg.render.terminal_output_allowlist))
+                repomap=repomap, llm=sb.llm, output_allowlist=cfg.render.terminal_output_allowlist, limits=limits))
             ungrounded = sum(i.code.startswith("UNGROUNDED") for i in res.issues)
             other = len(res.issues) - ungrounded
             for i in res.issues[:20]:
@@ -100,7 +101,7 @@ def evaluate(out_dir: Path, *, reclone: bool = True, source: str | None = None,
                         None if ungrounded is None else ungrounded == 0))
     rows.append(EvalRow("Other re-check issues", "0", "skipped" if other is None else str(other),
                         None if other is None else other == 0))
-    lo, hi = DURATION_RANGE_S
+    lo, hi = limits.duration_range
     rows.append(EvalRow("Duration (ffprobe)", f"{lo:.0f}–{hi:.0f} s", f"{dur['format']:.1f} s", lo <= dur["format"] <= hi))
     narr = report.video.narration_s if report.video else 0.0
     coverage = srt_covered_seconds(out_dir / "explainer.srt") / narr if narr else 0.0

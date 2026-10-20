@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from codecast import eval as ev
-from codecast.config import load_config
+from codecast.config import LimitsConfig, load_config
 from codecast.models import Storyboard, Submission
 from codecast.report import ReportBuilder, VideoInfo
 from codecast.voice.timeline import srt_timestamp
@@ -22,7 +22,7 @@ def committed(tiny_repo):
     return root, sha
 
 
-def write_outputs(out: Path, sha: str, raw: dict, narration_s: float = 52.0):
+def write_outputs(out: Path, sha: str, raw: dict, narration_s: float = 52.0, limits: LimitsConfig | None = None):
     out.mkdir(parents=True)
     sub = Submission.model_validate(raw)
     sb = Storyboard(repo_url="https://github.com/o/tiny", commit_sha=sha, title=sub.title,
@@ -30,6 +30,7 @@ def write_outputs(out: Path, sha: str, raw: dict, narration_s: float = 52.0):
     (out / "storyboard.json").write_text(sb.model_dump_json())
     rb = ReportBuilder("r", sb.repo_url, load_config())
     rb.report.cost_usd = 0.04
+    rb.report.limits = limits
     rb.report.stage_seconds = {"ingest": 3, "agent": 80, "voice": 20, "render": 15, "compose": 30}
     rb.report.video = VideoInfo(path=str(out / "explainer.mp4"), duration_s=55.0, size_bytes=1, narration_s=narration_s)
     (out / "run_report.json").write_text(rb.finish().model_dump_json())
@@ -81,3 +82,20 @@ def test_srt_union():
         p = Path(td) / "a.srt"
         p.write_text("1\n00:00:00,000 --> 00:00:02,000\na\n\n2\n00:00:01,000 --> 00:00:03,000\nb\n")
         assert ev.srt_covered_seconds(p) == pytest.approx(3.0)
+
+
+def test_eval_uses_limits_recorded_in_report(committed, tmp_path, monkeypatch):
+    root, sha = committed
+    fake_probe(monkeypatch, seconds=400.0)
+    out = tmp_path / "output" / "tiny"
+    write_outputs(out, sha, valid_submission(), limits=LimitsConfig(duration_max_s=600))
+    assert ev.evaluate(out, source=str(root), eval_log=tmp_path / "e.md") == 0
+
+
+def test_eval_without_recorded_limits_uses_defaults(committed, tmp_path, monkeypatch, capsys):
+    root, sha = committed
+    fake_probe(monkeypatch, seconds=400.0)
+    out = tmp_path / "output" / "tiny"
+    write_outputs(out, sha, valid_submission())          # an older report: no "limits"
+    assert ev.evaluate(out, source=str(root), eval_log=tmp_path / "e.md") == 1
+    assert "50–300 s" in capsys.readouterr().out

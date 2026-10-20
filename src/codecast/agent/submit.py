@@ -9,7 +9,7 @@ from typing import Any
 from codecast.agent.tools import SubmitOutcome
 from codecast.errors import ValidationFailed
 from codecast.grounding.validator import (
-    TARGET_WORDS, ValidationContext, ValidationResult, validate_submission,
+    ValidationContext, ValidationResult, validate_submission,
 )
 from codecast.models import Issue, Storyboard
 
@@ -29,11 +29,11 @@ class Submitter:
         self.failures_by_code: Counter[str] = Counter()
         self.accepted: Storyboard | None = None
         self.previous_narration: list[str] | None = None
-        self.target_words = TARGET_WORDS
+        self.target_words = ctx.limits.target_words
 
     def begin_revision(self, previous: Storyboard | None = None, target_words: int | None = None) -> None:
         self.rounds_phase = 0
-        self.target_words = target_words or TARGET_WORDS
+        self.target_words = target_words or self.ctx.limits.target_words
         self.previous_narration = None if previous is None else _narration(previous)
 
     def __call__(self, raw: Any) -> SubmitOutcome:

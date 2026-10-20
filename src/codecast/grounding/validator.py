@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import fnmatch
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from pydantic import ValidationError
+
+from codecast.config import LimitsConfig
 
 from codecast.grounding.numbers import (
     decimals as literal_decimals, extract_claims, identifier_grounded, number_grounded,
@@ -26,6 +28,7 @@ class ValidationContext:
     llm: dict[str, str]
     output_allowlist: list[str]
     mermaid_check: Callable[[str], str | None] | None = None
+    limits: LimitsConfig = field(default_factory=LimitsConfig)
 
 
 @dataclass
@@ -165,8 +168,6 @@ def _grounding_issues(sb: Storyboard, index: SourceIndex) -> list[Issue]:
 
 
 MIN_SCENES, MAX_SCENES = 4, 10
-MIN_WORDS, MAX_WORDS = 110, 200  # ~45-80 s of piper speech plus scene pauses
-TARGET_WORDS = 155
 MAX_SENTENCE_WORDS = 30
 # Widest code line the code template fits at its 18px minimum font (measured: 144 with 4-digit line numbers).
 MAX_CODE_COLS = 140
@@ -183,7 +184,8 @@ def output_allowed(path: str, patterns: list[str]) -> bool:
     return False
 
 
-def structure_issues(sb: Storyboard) -> list[Issue]:
+def structure_issues(sb: Storyboard, limits: LimitsConfig | None = None) -> list[Issue]:
+    limits = limits or LimitsConfig()
     issues: list[Issue] = []
     n = len(sb.scenes)
     if not MIN_SCENES <= n <= MAX_SCENES:
@@ -208,9 +210,10 @@ def structure_issues(sb: Storyboard) -> list[Issue]:
                                     message=f"{count} words; max {MAX_SENTENCE_WORDS}"))
             if not sent.source_ids:
                 issues.append(Issue(path=path, code="SENTENCE_UNCITED", message="cite at least one source"))
-    if not MIN_WORDS <= words <= MAX_WORDS:
+    if not limits.min_words <= words <= limits.max_words:
         issues.append(Issue(path="scenes", code="WORD_COUNT",
-                            message=f"{words} spoken words; need {MIN_WORDS}-{MAX_WORDS}; aim for ~{TARGET_WORDS} words"))
+                            message=f"{words} spoken words; need {limits.min_words}-{limits.max_words}; "
+                                    f"aim for ~{limits.target_words} words"))
     return issues
 
 
@@ -325,6 +328,6 @@ def validate_submission(raw: Any, ctx: ValidationContext) -> ValidationResult:
                     sources={s.id: index.spans.get(s.id, s) for s in sub.sources}, scenes=sub.scenes, llm=ctx.llm)
     issues += _reference_issues(sb, index)
     issues += _grounding_issues(sb, index)
-    issues += structure_issues(sb)
+    issues += structure_issues(sb, ctx.limits)
     issues += scene_rule_issues(sb, index, ctx)
     return ValidationResult(None if issues else sb, issues)

@@ -7,7 +7,6 @@ from typing import Annotated, Any, Literal, Union
 from pydantic import BaseModel, ConfigDict, Field
 
 # Allowed length of the final video in seconds, enforced by the voice loop, the ffprobe post-check and eval.
-DURATION_RANGE_S: tuple[float, float] = (50.0, 80.0)
 
 
 class _Strict(BaseModel):

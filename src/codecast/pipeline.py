@@ -21,7 +21,7 @@ from codecast.grounding.validator import ValidationContext
 from codecast.ingest.clone import ingest, repo_name
 from codecast.llm.pricing import estimate_cost
 from codecast.llm.registry import create_provider
-from codecast.models import DURATION_RANGE_S, RepoMap, SceneFrames, Storyboard
+from codecast.models import RepoMap, SceneFrames, Storyboard
 from codecast.render.renderer import Renderer, render_all
 from codecast.report import ReportBuilder, RunReport, VideoInfo
 from codecast.voice.engines import select_engine
@@ -40,7 +40,6 @@ class RunOptions:
     allow_network_tts: bool = False
     from_stage: str | None = None
     run_id: str | None = None
-    duration_range: tuple[float, float] = DURATION_RANGE_S
 
 
 def safe_mermaid_check(check):
@@ -80,7 +79,7 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
     except Exception:  # noqa: BLE001 - reported properly at the ingest stage
         name = "unknown"
     current = "preflight"
-    lo, hi = opts.duration_range
+    lo, hi = cfg.limits.duration_range
     try:
         if opts.from_stage and opts.from_stage not in STAGES[2:]:
             raise ConfigError(f"--from-stage must be one of {STAGES[2:]}")
@@ -122,7 +121,8 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
                     rep.llm.model = provider.model
                     submitter = Submitter(ValidationContext(
                         repomap=repomap, llm={"provider": provider.name, "model": provider.model},
-                        output_allowlist=cfg.render.terminal_output_allowlist, mermaid_check=safe_mermaid_check(renderer.mermaid_check)))
+                        output_allowlist=cfg.render.terminal_output_allowlist, mermaid_check=safe_mermaid_check(renderer.mermaid_check),
+                        limits=cfg.limits))
                     max_steps = opts.max_steps or cfg.agent.max_steps or default_max_steps(repomap.n_files)
                     agent = DirectorAgent(provider, ToolBox(repomap, submitter), max_steps=max_steps,
                                           max_total_tokens=cfg.agent.max_total_tokens,
@@ -150,7 +150,7 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
                                                 f"after {round_no} revision rounds")
                         round_no += 1
                         rep.validation.duration_rounds = round_no
-                        feedback = duration_feedback(timeline, sb, target=(lo, hi))
+                        feedback = duration_feedback(timeline, sb, limits=cfg.limits)
                         agent.transcript.log_event(agent.stats.steps_used, "duration_feedback", json.loads(feedback))
                         submitter.begin_revision(sb, target_words=json.loads(feedback).get("target_words"))
                         current = "agent"

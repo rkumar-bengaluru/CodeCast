@@ -58,7 +58,7 @@ def test_happy_path_produces_all_artifacts(git_repo, tmp_path):
 def test_duration_loop_revises_then_succeeds(git_repo, tmp_path):
     engine = SilenceEngine(0.7)                       # first pass ≈ 95 s → too long
     provider = FakeProvider([submit(), lambda req: _shorter(engine) or submit_variant(1)])
-    rep = run(opts(git_repo, tmp_path), load_config(), provider=provider, engine=engine, preflight=False)
+    rep = run(opts(git_repo, tmp_path), load_config(env={"CODECAST_DURATION_MAX_S": "80"}), provider=provider, engine=engine, preflight=False)
     assert rep.status == "ok", rep.failure
     assert rep.validation.duration_rounds == 1
     assert '"target": [50.0, 80.0]' in provider.requests[1].messages[-1].text()
@@ -73,7 +73,7 @@ def test_duration_failure_exit_3_and_existing_output_untouched(git_repo, tmp_pat
     out = tmp_path / "output" / "tiny"
     out.mkdir(parents=True)
     (out / "explainer.mp4").write_bytes(b"committed demo")
-    rep = run(opts(git_repo, tmp_path), load_config(), provider=FakeProvider([submit(), submit_variant(1), submit_variant(2)]),
+    rep = run(opts(git_repo, tmp_path), load_config(env={"CODECAST_DURATION_MAX_S": "80"}), provider=FakeProvider([submit(), submit_variant(1), submit_variant(2)]),
               engine=SilenceEngine(0.7), preflight=False)
     assert rep.exit_code == 3 and rep.validation.duration_rounds == 2
     assert (out / "explainer.mp4").read_bytes() == b"committed demo"
@@ -99,13 +99,13 @@ def test_resume_from_render_reuses_workspace(git_repo, tmp_path):
 
 
 def test_resume_from_voice_out_of_range_exit_3_output_untouched(git_repo, tmp_path):
-    first = run(opts(git_repo, tmp_path), load_config(), provider=FakeProvider([submit()]),
+    first = run(opts(git_repo, tmp_path), load_config(env={"CODECAST_DURATION_MAX_S": "80"}), provider=FakeProvider([submit()]),
                 engine=SilenceEngine(0.4), preflight=False)
     assert first.status == "ok"
     mp4 = tmp_path / "output" / "tiny" / "explainer.mp4"
     before = mp4.read_bytes()
     shutil.rmtree(tmp_path / "ws" / "r1" / "audio")      # the audio cache would otherwise be reused as-is
-    rep = run(opts(git_repo, tmp_path, from_stage="voice"), load_config(), provider=FakeProvider([]),
+    rep = run(opts(git_repo, tmp_path, from_stage="voice"), load_config(env={"CODECAST_DURATION_MAX_S": "80"}), provider=FakeProvider([]),
               engine=SilenceEngine(0.7), preflight=False)
     assert rep.exit_code == 3 and rep.failure.stage == "voice"
     assert mp4.read_bytes() == before
@@ -168,3 +168,13 @@ def test_resume_with_unparsable_prior_report_still_works(git_repo, tmp_path):
     rep = run(opts(git_repo, tmp_path, from_stage="render"), load_config(), provider=FakeProvider([]),
               engine=SilenceEngine(0.4), preflight=False)
     assert rep.status == "ok", rep.failure
+
+
+def test_long_video_passes_when_max_duration_raised(git_repo, tmp_path):
+    # 130 words * 0.7 s ≈ 95 s: too long for the old 80 s window, fine under a raised maximum
+    cfg = load_config(env={"CODECAST_DURATION_MAX_S": "600"})
+    rep = run(opts(git_repo, tmp_path), cfg, provider=FakeProvider([submit()]), engine=SilenceEngine(0.7),
+              preflight=False)
+    assert rep.exit_code == 0, rep.failure
+    assert rep.validation.duration_rounds == 0
+    assert rep.limits.duration_max_s == 600

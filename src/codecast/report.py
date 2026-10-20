@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from codecast.config import Config
+from codecast.config import Config, LimitsConfig
 from codecast.errors import CodecastError
 
 
@@ -75,6 +75,7 @@ class RunReport(BaseModel):
     cost_unknown_reason: str | None = None
     context: dict[str, Any] | None = None
     validation: ValidationInfo = Field(default_factory=ValidationInfo)
+    limits: LimitsConfig | None = None  # absent in reports written before limits were configurable
     tts_engine: str | None = None
     stage_seconds: dict[str, float] = Field(default_factory=dict)
     video: VideoInfo | None = None
@@ -88,7 +89,8 @@ class ReportBuilder:
     def __init__(self, run_id: str, repo: str, cfg: Config):
         self.report = RunReport(run_id=run_id, started_at=_now(), repo_url=repo,
                                 llm=LLMInfo(provider=cfg.llm.provider, model=cfg.llm.model,
-                                            temperature=cfg.llm.temperature))
+                                            temperature=cfg.llm.temperature),
+                                limits=cfg.limits)
 
     @contextmanager
     def stage(self, name: str):

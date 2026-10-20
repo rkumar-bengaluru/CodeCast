@@ -1,6 +1,7 @@
 import copy
 import pytest
 
+from codecast.config import LimitsConfig
 from codecast.grounding.validator import ValidationContext, output_allowed, validate_submission
 
 from tests.unit.storyboards import valid_submission
@@ -183,3 +184,11 @@ def test_code_width_limit(tiny_repo, lines, too_wide):
     assert bool(issues) is too_wide
     if too_wide:
         assert issues[0].path == "scenes[2].span_id" and "max 140" in issues[0].message
+
+
+def test_word_limits_come_from_context(tiny_repo):
+    ctx = ValidationContext(repomap=tiny_repo, llm={}, output_allowlist=["*.log"],
+                            limits=LimitsConfig(min_words=10, max_words=50, target_words=30))
+    issues = [i for i in validate_submission(valid_submission(), ctx).issues]
+    assert [i.code for i in issues] == ["WORD_COUNT"]
+    assert "need 10-50" in issues[0].message and "~30" in issues[0].message
