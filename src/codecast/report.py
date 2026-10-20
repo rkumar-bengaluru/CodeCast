@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 import traceback
 from contextlib import contextmanager
@@ -10,8 +11,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from codecast.config import Config
+from codecast.config import Config, LimitsConfig
 from codecast.errors import CodecastError
+
+log = logging.getLogger("codecast.pipeline")
 
 
 class LLMInfo(BaseModel):
@@ -75,7 +78,9 @@ class RunReport(BaseModel):
     cost_unknown_reason: str | None = None
     context: dict[str, Any] | None = None
     validation: ValidationInfo = Field(default_factory=ValidationInfo)
+    limits: LimitsConfig | None = None  # absent in reports written before limits were configurable
     tts_engine: str | None = None
+    tts_voice: str | None = None
     stage_seconds: dict[str, float] = Field(default_factory=dict)
     video: VideoInfo | None = None
 
@@ -88,24 +93,27 @@ class ReportBuilder:
     def __init__(self, run_id: str, repo: str, cfg: Config):
         self.report = RunReport(run_id=run_id, started_at=_now(), repo_url=repo,
                                 llm=LLMInfo(provider=cfg.llm.provider, model=cfg.llm.model,
-                                            temperature=cfg.llm.temperature))
+                                            temperature=cfg.llm.temperature),
+                                limits=cfg.limits)
 
     @contextmanager
     def stage(self, name: str):
         t0 = time.monotonic()
+        log.info("stage %s started", name)
         try:
             yield
         finally:
+            log.info("stage %s ended after %.1fs", name, time.monotonic() - t0)
             self.report.stage_seconds[name] = round(self.report.stage_seconds.get(name, 0) + time.monotonic() - t0, 3)
 
     def fail(self, exc: BaseException, stage: str) -> None:
+        tb = "".join(traceback.format_exception(exc))  # kept for typed errors too: the cause chain is the clue
         if isinstance(exc, CodecastError):
-            code, message, st, tb = exc.exit_code, exc.message, exc.stage or stage, None
+            code, message, st = exc.exit_code, exc.message, exc.stage or stage
             if exc.details.get("issues"):
                 message += f" (first issues: {exc.details['issues'][:5]})"
         else:
             code, message, st = 1, f"{type(exc).__name__}: {exc}", stage
-            tb = "".join(traceback.format_exception(exc))
         self.report.status = "failed"
         self.report.exit_code = code
         self.report.failure = Failure(stage=st, code=type(exc).__name__, message=message, traceback=tb)

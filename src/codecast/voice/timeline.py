@@ -10,8 +10,8 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from codecast.errors import CodecastError
-from codecast.grounding.validator import MAX_WORDS, MIN_WORDS
-from codecast.models import DURATION_RANGE_S, Storyboard, scene_id
+from codecast.config import LimitsConfig
+from codecast.models import Storyboard, scene_id
 from codecast.voice.engines import TTSEngine, wav_duration
 
 FPS = 30
@@ -115,7 +115,8 @@ def synthesize_storyboard(sb: Storyboard, engine: TTSEngine, cache_dir: Path, *,
     for i, sc in enumerate(sb.scenes):
         items = []
         for sent in sc.narration:
-            key = hashlib.sha256(f"{engine.name}\x00{sent.text}".encode()).hexdigest()[:20]
+            voice = getattr(engine, "voice_id", "")
+            key = hashlib.sha256(f"{engine.name}\x00{voice}\x00{sent.text}".encode()).hexdigest()[:20]
             wav = cache_dir / f"{key}.wav"
             if not wav.is_file():
                 tmp = cache_dir / f"{key}.tmp.wav"
@@ -129,20 +130,24 @@ def synthesize_storyboard(sb: Storyboard, engine: TTSEngine, cache_dir: Path, *,
     return build_timeline(scenes, gap_s=gap_s, tail_s=tail_s)
 
 
-def duration_feedback(timeline: Timeline, sb: Storyboard, *, target: tuple[float, float] = DURATION_RANGE_S) -> str:
+def duration_feedback(timeline: Timeline, sb: Storyboard, *, limits: LimitsConfig) -> str:
     words = sum(len(s.text.split()) for sc in sb.scenes for s in sc.narration)
     wps = words / timeline.narration_seconds if timeline.narration_seconds else 2.5
-    lo, hi = target
-    goal = (lo + hi) / 2
+    lo, hi = limits.duration_range
+    min_words, max_words = limits.min_words, limits.max_words
+    # Aim at the middle of the range the word ceiling can actually reach: with a wide window (50-300 s) and
+    # 200 words the plain midpoint is unreachable and every revision would target exactly max_words.
+    reachable_hi = min(hi, timeline.total + (max_words - words) / wps)
+    goal = (lo + max(lo, reachable_hi)) / 2
     naive = words + round((goal - timeline.total) * wps)
-    target_words = min(max(naive, MIN_WORDS), MAX_WORDS)
+    target_words = min(max(naive, min_words), max_words)
     delta_words = target_words - words
     verb = "shorten" if timeline.total > goal else "lengthen"
     slow = ("" if verb == "lengthen" else
             " Numbers, identifiers, snake_case names and long lists are spoken slowly (each takes about as long "
             "as 3 plain words), so drop or simplify those first; the per-scene seconds show where the time goes."
-            + (f" You cannot go below {MIN_WORDS} words, so you must cut slow content, not just words."
-               if naive < MIN_WORDS else ""))
+            + (f" You cannot go below {min_words} words, so you must cut slow content, not just words."
+               if naive < min_words else ""))
     return json.dumps({
         "per_scene_seconds": [round(s, 2) for s in timeline.per_scene_seconds()],
         "total": round(timeline.total, 6),

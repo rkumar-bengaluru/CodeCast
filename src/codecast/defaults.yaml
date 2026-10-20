@@ -23,6 +23,14 @@ voice:
   gap_s: 0.15
   tail_s: 0.5
 
+# Overridable per run with CODECAST_DURATION_MIN_S / _MAX_S, CODECAST_MIN_WORDS / _MAX_WORDS / _TARGET_WORDS.
+limits:
+  duration_min_s: 50.0
+  duration_max_s: 300.0
+  min_words: 110
+  max_words: 200
+  target_words: 155
+
 render:
   terminal_output_allowlist: ["*.log", "*.txt", "*.out", "logs/**", "**/output*"]
 

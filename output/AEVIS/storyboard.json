@@ -1,0 +1,299 @@
+{
+ "version": 1,
+ "repo_url": "C:/2026/rkumar-ava/AEVIS",
+ "commit_sha": "026160fe0eaa935385292a248a44368959e9f5b7",
+ "title": "AEVIS, from RAG governance to run results",
+ "sources": {
+  "rootreadme": {
+   "kind": "text",
+   "id": "rootreadme",
+   "file": "README.md",
+   "start_line": 1,
+   "end_line": 15,
+   "text": "# AEVIS\n\nMeasurement and governance platform for RAG systems. Specs: `docs/superpowers/specs/`; MVP roadmap: `docs/superpowers/plans/2026-10-15-aevis-mvp-roadmap.md`.\n\n## Run locally\n\n    docker compose -f deploy/docker-compose.yml up --build -d\n    docker compose -f deploy/docker-compose.yml run --rm api aevis admin bootstrap --tenant-name <name> --admin-username <user>\n\nOpen http://localhost:8080 and sign in with the printed one-time password.\n\n## Develop\n\n- Backend: `cd backend && uv sync && uv run pytest` (Docker needed for `tests/integration`).\n- Web: `cd web && pnpm install && pnpm dev` (proxies `/api` to `localhost:8000`). After API changes, run `pnpm gen:api`."
+  },
+  "webreadme": {
+   "kind": "text",
+   "id": "webreadme",
+   "file": "web/README.md",
+   "start_line": 1,
+   "end_line": 32,
+   "text": "# React + TypeScript + Vite\n\nThis template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.\n\nCurrently, two official plugins are available:\n\n- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)\n- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)\n\n## React Compiler\n\nThe React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).\n\n## Expanding the Oxlint configuration\n\nIf you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:\n\n```json\n{\n  \"$schema\": \"./node_modules/oxlint/configuration_schema.json\",\n  \"plugins\": [\"react\", \"typescript\", \"oxc\"],\n  \"options\": {\n    \"typeAware\": true\n  },\n  \"rules\": {\n    \"react/rules-of-hooks\": \"error\",\n    \"react/only-export-components\": [\"warn\", { \"allowConstantExport\": true }]\n  }\n}\n```\n\nSee the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories."
+  },
+  "simreadme": {
+   "kind": "text",
+   "id": "simreadme",
+   "file": "sim/README.md",
+   "start_line": 1,
+   "end_line": 31,
+   "text": "# aevis-sim\n\nA deterministic simulated RAG endpoint (Step 1 spec §6). It plays an external system, so it\nimports nothing from `aevis`, and it answers in its own JSON shape. AEVIS maps that shape with\nJSONPath, exactly as it would for a real endpoint.\n\nPipeline: PyMuPDF extraction → chunker (`fixed-256` or `recursive-512`) → BM25 → an extractive\nanswer from the top chunks. It abstains when nothing matches well enough.\n\n```bash\nuv --directory sim run uvicorn aevis_sim.app:app --port 8090\ncurl -s localhost:8090/v1/ask -H 'X-Sim-Profile: instrumented' \\\n  -d '{\"id\":\"q1\",\"q\":\"What is the standard mileage rate?\",\"k\":5}' -H 'content-type: application/json'\n```\n\n## Request headers\n\n| Header | Values | What it does |\n|---|---|---|\n| `X-Sim-Profile` | `core`, `core_text` (default), `with_context`, `instrumented`, `temporal`, `no_candidates` | Picks which fields the response includes |\n| `X-Sim-Faults` | comma list: `latency:<ms>`, `timeout:<rate>`, `rate_limit:<rate>`, `malformed:<rate>`, `drop_declared:<capability>`, `bad_context_id:<rate>`, `uncited:<rate>`, `drift:prior_edition`, `ignore_as_of` | Injects failures, seeded by `(seed, id)` so they reproduce |\n| `X-Sim-Chunker` | `fixed-256` (default), `recursive-512` | Picks the chunker |\n| `X-Sim-Seed` | int | Seed for the faults |\n| `X-AEVIS-Idempotency-Key` | any string | A repeated key returns the cached response and is listed at `GET /v1/duplicates` |\n| `X-AEVIS-Attempt` | `1`, `2`, … | Attempt 1 (or no header) draws faults by query id; a later attempt draws them afresh, so a retry can succeed |\n\nThe `temporal` profile honours `as_of` and `question_time` in the body. It serves, for each\ndocument, the latest edition that was ingested (or valid) by that date. Dates are set in\n`corpus/manifest.yaml`.\n\n`GET /v1/stats` returns `{\"requests\", \"max_in_flight\"}` (the most calls served at once); `POST /v1/stats/reset` zeroes it and the idempotency log."
+  },
+  "milereadme": {
+   "kind": "text",
+   "id": "milereadme",
+   "file": "milestone/README.md",
+   "start_line": 1,
+   "end_line": 18,
+   "text": "# AEVIS MVP milestones\n\nOne file per lifecycle step. Each one says how to deploy that step on your machine, what to click, and what you should see. A step is signed off when every box in its sign-off checklist is ticked.\n\n| Step | What it delivers | Branch | Status |\n|---|---|---|---|\n| 0 | [Foundation](step-00-foundation.md): sign-in, users, the workspace shell, the platform services | `feat/mvp-01-foundation` (PR #31) | Signed off 2026-10-17 |\n| 1 | [Project and target](step-01-project-and-target.md): projects, roles, the target wizard and probe, approval, preflight | `feat/mvp-02-project-target` (PR #32) | Merged |\n| 2 | [Corpus and evidence](step-02-corpus.md): corpus snapshots, PDF extraction, evidence import, span mapping | `feat/mvp-03-corpus` (PR #34) | Signed off 2026-10-18 |\n| 3 | [Benchmark](step-03-benchmark.md): question import and review, benchmark versions with development/holdout splits, publication checks, approval | `feat/mvp-04-benchmark` | Signed off 2026-10-18 |\n| 4 | [Experiment](step-04-experiment.md): experiments with a live preview, submit with preflight and reservation, eval-lead approval, run manifests, baseline anchors | `feat/mvp-05-experiment` | Waiting for sign-off |\n| 5 | [Execute](step-05-execute.md): runs from approved manifests, live capture within target limits, retries and attempts, cancel, deterministic scoring, baseline anchors; New snapshot fix | `feat/mvp-06-run` | Waiting for sign-off |\n| 6 | Measure | not started | |\n| 7 | Compare and diagnose | not started | |\n| 8 | Review and qualify | not in MVP | |\n| 9 | Release decision | not started | |\n\nEvery command in these files runs from the repo root."
+  },
+  "app": {
+   "kind": "text",
+   "id": "app",
+   "file": "backend/src/aevis/api/app.py",
+   "start_line": 65,
+   "end_line": 76,
+   "text": "    api = APIRouter(prefix=\"/api/v1\")\n    api.add_api_route(\"/healthz\", lambda: {\"status\": \"ok\"}, methods=[\"GET\"], tags=[\"health\"])\n    for router in (auth_router, admin_router, approvals_router, registry_router):\n        api.include_router(router)\n    api.include_router(projects_routes.make_router(DB, current_principal, problems.request_id_of))\n    api.include_router(targets_routes.make_router(DB, current_principal, problems.request_id_of))\n    api.include_router(preflight_routes.make_router(DB, current_principal, problems.request_id_of))\n    for module in (snapshots_routes, sources_routes, evidence_routes, benchmarks_routes,\n                   questions_routes, versions_routes, anchors_routes,\n                   experiments_routes, run_routes):\n        api.include_router(module.make_router(DB, current_principal, problems.request_id_of))\n    app.include_router(api)"
+  },
+  "admin": {
+   "kind": "text",
+   "id": "admin",
+   "file": "backend/src/aevis/api/routes_admin.py",
+   "start_line": 61,
+   "end_line": 78,
+   "text": "@router.get(\"/users\", response_model=list[UserOut])\ndef users(db: Session = DB, admin: Principal = Depends(require_super_admin)):\n    return list_users(db, admin.tenant_id)\n\n\n@router.post(\"/users\", response_model=CreatedUserOut, status_code=201)\ndef create(body: CreateUserIn, request: Request, db: Session = DB,\n           admin: Principal = Depends(require_super_admin)):\n    one_time = generate_password()\n    user_id = create_user(db, tenant_id=admin.tenant_id, username=body.username,\n                          display_name=body.display_name, email=body.email, password=one_time)\n    _audit(request, db, admin, \"user.created\", user_id)\n    return CreatedUserOut(user_id=user_id, username=normalize_username(body.username),\n                          one_time_password=one_time)\n\n\n@router.patch(\"/users/{user_id}\", status_code=204)\ndef update(user_id: str, body: UpdateUserIn, request: Request, db: Session = DB,"
+  },
+  "target": {
+   "kind": "text",
+   "id": "target",
+   "file": "backend/src/aevis/project/adapters/http.py",
+   "start_line": 75,
+   "end_line": 86,
+   "text": "    def _headers(self, q: TargetQuery) -> dict[str, str]:\n        headers = {}\n        for name, value in self._config.headers.items():\n            if value.startswith(SECRET_PREFIX):\n                try:\n                    value = self._resolve(value)\n                except Exception:\n                    raise TargetError(E.SECRET_UNRESOLVED, f\"{value} did not resolve\") from None\n            headers[name] = value\n        headers[\"X-AEVIS-Idempotency-Key\"] = str(q.params.get(\"idempotency_key\", q.query_id))\n        headers[\"X-AEVIS-Attempt\"] = str(q.params.get(\"attempt\", 1))\n        return headers"
+  },
+  "bake": {
+   "kind": "text",
+   "id": "bake",
+   "file": "spikes/judge-bakeoff/README.md",
+   "start_line": 30,
+   "end_line": 39,
+   "text": "## Judges (`src/judges.py`)\n\n| Judge | What it checks | Cost |\n|---|---|---|\n| `regex_numeric` | Every number in the answer appears in the context | $0, <1 ms |\n| `lexical_overlap` | Each answer sentence has >= 75% of its content words in the context | $0, <1 ms |\n| `hhem_2.1_open` | Vectara HHEM-2.1-Open, P(consistent) >= 0.5; revision pinned; needs `trust_remote_code` | $0, CPU |\n| `lettucedetect_base_v1` | LettuceDetect ModernBERT, flags unsupported answer spans; revision pinned | $0, CPU |\n\nTo add a judge, implement `name`, `version` and"
+  },
+  "findings": {
+   "kind": "text",
+   "id": "findings",
+   "file": "spikes/judge-bakeoff/FINDINGS.md",
+   "start_line": 11,
+   "end_line": 31,
+   "text": "**Yes.** The harness builds 242 labelled cases from the reviewed benchmark,\nruns 4 pluggable judges (968 calls, 0 failures), and reports qualification\nmetrics with clustered confidence intervals, broken down by error type.\nAdding Ragas or DeepEval means writing one adapter class.\n\n**No cheap judge qualifies** under the PRD rule (sensitivity and specificity\n>= 0.90, lower bounds >= 0.80), alone or combined. The breakdown shows\nexactly where each one fails, which is the information needed to decide what\nthe LLM judges must add.\n\n## Results\n\nJudges were scored on 242 cases (135 unsupported, 107 supported), with 95%\ncluster-bootstrap intervals over the 53 questions.\n\n| Judge | Sensitivity | Specificity | AUROC | Kappa | ms/case (CPU) | Qualifies |\n|---|---|---|---|---|---|---|\n| regex_numeric | 0.667 [0.58, 0.76] | 0.916 [0.86, 0.96] | 0.80 | 0.56 | 0.1 | no |\n| lexical_overlap | 0.689 [0.61, 0.76] | 0.841 [0.77, 0.90] | 0.86 | 0.52 | 0.2 | no |\n| HHEM-2.1-Open | **0.733** [0.67, 0.80] | 0.869 [0.80, 0.93] | **0.87** | 0.59 | 358 (p95 784) | no |\n| LettuceDetect base | 0.681 [0.61, 0.76] | **0.944** [0.90, 0.98] | 0.82 | **0.60** | 603 (p95 1175) | no |"
+  },
+  "metrics": {
+   "kind": "text",
+   "id": "metrics",
+   "file": "spikes/judge-bakeoff/results/metrics.csv",
+   "start_line": 1,
+   "end_line": 5,
+   "text": "judge,cases,failed,unsupported_n,supported_n,sensitivity,sens_ci95,specificity,spec_ci95,worstcase_sens,worstcase_spec,auroc,kappa,latency_ms_mean,latency_ms_p95,qualifies_prd_0.90\nregex_numeric,242,0,135,107,0.667,\"[0.578, 0.758]\",0.916,\"[0.863, 0.963]\",0.667,0.916,0.8,0.563,0.1,0.1,False\nlexical_overlap,242,0,135,107,0.689,\"[0.609, 0.763]\",0.841,\"[0.771, 0.900]\",0.689,0.841,0.861,0.517,0.2,0.3,False\nhhem_2.1_open,242,0,135,107,0.733,\"[0.669, 0.797]\",0.869,\"[0.798, 0.930]\",0.733,0.869,0.872,0.59,358.2,784.2,False\nlettucedetect_base_v1,242,0,135,107,0.681,\"[0.606, 0.758]\",0.944,\"[0.896, 0.982]\",0.681,0.944,0.819,0.604,603.0,1175.4,False"
+  }
+ },
+ "scenes": [
+  {
+   "narration": [
+    {
+     "text": "AEVIS is a measurement and governance platform for RAG systems.",
+     "source_ids": [
+      "rootreadme"
+     ]
+    },
+    {
+     "text": "It anchors ground truth to source spans and shows where pipelines break.",
+     "source_ids": [
+      "findings"
+     ]
+    }
+   ],
+   "type": "title",
+   "heading": "AEVIS",
+   "subheading": "Measure and govern RAG systems, then ship the workflow."
+  },
+  {
+   "narration": [
+    {
+     "text": "The lifecycle spans project setup, corpus governance, benchmark approval, and execution.",
+     "source_ids": [
+      "milereadme"
+     ]
+    },
+    {
+     "text": "The web app is a React and TypeScript shell over the API.",
+     "source_ids": [
+      "webreadme",
+      "app"
+     ]
+    }
+   ],
+   "type": "bullets",
+   "heading": "What the platform covers",
+   "items": [
+    "Project setup and target approval",
+    "Corpus, benchmark, experiment, and run",
+    "Web shell plus API routers"
+   ]
+  },
+  {
+   "narration": [
+    {
+     "text": "The FastAPI app loads the registry, builds storage, and mounts routers.",
+     "source_ids": [
+      "app"
+     ]
+    },
+    {
+     "text": "It refuses to start if the registry is invalid, which protects the platform.",
+     "source_ids": [
+      "app"
+     ]
+    }
+   ],
+   "type": "code",
+   "span_id": "app",
+   "highlight_lines": [
+    65,
+    66,
+    67,
+    69,
+    75,
+    76
+   ]
+  },
+  {
+   "narration": [
+    {
+     "text": "Admin routes create users, update profiles, and reset passwords.",
+     "source_ids": [
+      "admin"
+     ]
+    },
+    {
+     "text": "Each change is audited, so operator actions stay traceable.",
+     "source_ids": [
+      "admin"
+     ]
+    }
+   ],
+   "type": "code",
+   "span_id": "admin",
+   "highlight_lines": [
+    61,
+    66,
+    77
+   ]
+  },
+  {
+   "narration": [
+    {
+     "text": "Target adapters inject the idempotency key and attempt header automatically.",
+     "source_ids": [
+      "target",
+      "simreadme"
+     ]
+    },
+    {
+     "text": "That keeps retries reproducible when the simulator or a real endpoint is called.",
+     "source_ids": [
+      "target",
+      "simreadme"
+     ]
+    }
+   ],
+   "type": "code",
+   "span_id": "target",
+   "highlight_lines": [
+    75,
+    84,
+    85
+   ]
+  },
+  {
+   "narration": [
+    {
+     "text": "The bake-off scores 242 cases across four judges.",
+     "source_ids": [
+      "findings"
+     ]
+    },
+    {
+     "text": "HHEM reaches 0.733 sensitivity, while LettuceDetect reaches 0.944 specificity.",
+     "source_ids": [
+      "metrics",
+      "findings",
+      "bake"
+     ]
+    }
+   ],
+   "type": "metrics_table",
+   "columns": [
+    "Judge",
+    "Sensitivity",
+    "Specificity"
+   ],
+   "rows": [
+    [
+     "regex_numeric",
+     "0.667",
+     "0.916"
+    ],
+    [
+     "lexical_overlap",
+     "0.689",
+     "0.841"
+    ],
+    [
+     "hhem_2.1_open",
+     "0.733",
+     "0.869"
+    ],
+    [
+     "lettucedetect_base_v1",
+     "0.681",
+     "0.944"
+    ]
+   ]
+  },
+  {
+   "narration": [
+    {
+     "text": "You can run the simulator with uvicorn, then query it with curl.",
+     "source_ids": [
+      "simreadme"
+     ]
+    },
+    {
+     "text": "For the bake-off, create a virtual environment and run the harness.",
+     "source_ids": [
+      "bake"
+     ]
+    }
+   ],
+   "type": "terminal",
+   "command_span_ids": [
+    "simreadme",
+    "bake"
+   ],
+   "output_span_id": null
+  },
+  {
+   "narration": [
+    {
+     "text": "Clone the repository, start the stack, and explore the workflow.",
+     "source_ids": [
+      "rootreadme"
+     ]
+    },
+    {
+     "text": "Then try the simulator and the bake-off to see AEVIS in action.",
+     "source_ids": [
+      "simreadme",
+      "bake"
+     ]
+    }
+   ],
+   "type": "outro",
+   "repo_url": "C:/2026/rkumar-ava/AEVIS",
+   "cta": "Clone it, start the stack, and explore the workflow."
+  }
+ ],
+ "llm": {
+  "provider": "openai",
+  "model": "gpt-5.4-mini"
+ }
+}

@@ -101,3 +101,15 @@ def test_timeout_is_retryable():
     respx.post(URL).mock(side_effect=httpx.ReadTimeout("t"))
     with pytest.raises(RetryableError):
         AnthropicProvider(api_key="k", model="m").complete(ChatRequest(messages=conversation()[:2]))
+
+
+
+@respx.mock
+def test_map_error_extracts_fields():
+    respx.post(URL).mock(return_value=httpx.Response(400, json={"type": "error", "error": {
+        "type": "invalid_request_error", "message": "messages: text content blocks must be non-empty"}}))
+    with pytest.raises(ProviderError) as ei:
+        AnthropicProvider(api_key="k", model="m").complete(ChatRequest(messages=conversation()[:2]))
+    e = ei.value
+    assert (e.provider, e.status, e.error_type, e.param) == ("anthropic", 400, "invalid_request_error", None)
+    assert str(e) == "messages: text content blocks must be non-empty"

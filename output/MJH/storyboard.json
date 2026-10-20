@@ -1,0 +1,263 @@
+{
+ "version": 1,
+ "repo_url": "https://github.com/rkumar-bengaluru/MJH",
+ "commit_sha": "e216c38042ce3ae645750d4e60130fcde8915f43",
+ "title": "MJH: a governed AI decision platform",
+ "sources": {
+  "readme": {
+   "kind": "text",
+   "id": "readme",
+   "file": "Readme.md",
+   "start_line": 17,
+   "end_line": 31,
+   "text": "MJH proposes three AI-powered decision-support products built on a shared, governed data and intelligence platform.\n\nThe goal is to improve inventory allocation, understand market demand, and source graded trading cards more efficiently. Today, these decisions rely heavily on manual analysis, batch data, and the experience of a small number of employees.\n\nThe proposed suite will turn fragmented operational and market data into daily, explainable recommendations.\n\n**Core principle:** AI recommends and explains; authorized MJH employees retain decision-making authority.\n\n### The Three Products\n\n| Product | Primary Purpose | Expected Business Value |\n| --- | --- | --- |\n| Allocation & Sell-Through Intelligence | Optimize inventory distribution across Walmart stores and e-commerce channels | Higher sell-through, lower shrink and returns, improved margins |\n| Market Trends & Sentiment Intelligence | Monitor external demand, sentiment, prices, and market activity | Faster research, earlier trend detection, better-informed purchasing |\n| Secondary-Market Procurement Intelligence | Find and evaluate graded cards across approved marketplaces | Reduced sourcing effort, better acquisition economics, lower procurement risk |"
+  },
+  "targets": {
+   "kind": "text",
+   "id": "targets",
+   "file": "Readme.md",
+   "start_line": 194,
+   "end_line": 206,
+   "text": "### Proposed Acceptance Targets\n\n| Area | Target |\n| --- | --- |\n| Allocation data reconciliation | At least 98% of expected daily records reconcile within agreed tolerances for four consecutive pilot weeks |\n| Allocation work queue freshness | Available by the agreed cutoff on at least 95% of business days |\n| Market insight relevance | At least 70% of reviewed items rated useful by pilot users |\n| Market entity precision | At least 95% on the reviewed high-priority pilot set |\n| Procurement card and grade matching | At least 95% precision on the approved evaluation set |\n| Recommendation safety | No bypass of supply, eligibility, contractual, or approval constraints |\n| Procurement safety | No bidding, seller communication, or financial commitments through MVP functionality |\n\nThese are proposed acceptance criteria, not achieved results or guarantees."
+  },
+  "api_code": {
+   "kind": "text",
+   "id": "api_code",
+   "file": "src/allocation_foundation/api/app.py",
+   "start_line": 50,
+   "end_line": 67,
+   "text": "def create_app(workflow: Workflow, ops: OpsReader, auth, session_key: str, static_dir: Path | None = None,\n               exports=None) -> FastAPI:\n    if not session_key:\n        raise ValueError(\"a session key is required (ALLOCATION_SESSION_KEY)\")\n    app = FastAPI(title=\"MJH allocation pilot\", docs_url=\"/api/docs\", openapi_url=\"/api/openapi.json\")\n    signer = URLSafeTimedSerializer(session_key, salt=\"allocation-session\")\n\n    @app.middleware(\"http\")\n    async def correlation(request: Request, call_next):\n        request.state.correlation_id = request.headers.get(\"X-Correlation-ID\") or uuid.uuid4().hex\n        response = await call_next(request)\n        response.headers[\"X-Correlation-ID\"] = request.state.correlation_id\n        return response\n\n    @app.exception_handler(Refused)\n    async def refused(_, exc: Refused):\n        return JSONResponse({\"code\": exc.code, \"detail\": str(exc)}, status_code=422)\n"
+  },
+  "dbcli": {
+   "kind": "text",
+   "id": "dbcli",
+   "file": "src/allocation_foundation/db_cli.py",
+   "start_line": 11,
+   "end_line": 27,
+   "text": "def main(argv: list[str] | None = None) -> int:\n    parser = argparse.ArgumentParser(prog=\"allocation-db\", description=__doc__)\n    sub = parser.add_subparsers(dest=\"command\", required=True)\n    p = sub.add_parser(\"migrate\", help=\"create or update tables (safe to run repeatedly)\")\n    p.add_argument(\"--schema\", help=\"PostgreSQL schema to migrate (default: the connection's search path)\")\n    args = parser.parse_args(argv)\n\n    load_dotenv(Path(\".env\"))\n    url = Settings.from_env().database_url\n    if not url:\n        print(\"missing DATABASE_URL (copy .env.example to .env)\")\n        return 2\n    applied = migrate(url, schema=args.schema)\n    for name in applied:\n        print(f\"applied {name}\")\n    print(\"database already up to date\" if not applied else f\"{len(applied)} migrations applied\")\n    return 0"
+  },
+  "api_main": {
+   "kind": "text",
+   "id": "api_main",
+   "file": "src/allocation_foundation/api/main.py",
+   "start_line": 1,
+   "end_line": 40,
+   "text": "\"\"\"``allocation-api``: serve the planner app and its API on 127.0.0.1 (Step 6, P11/P12).\n\nSign-in is DEV ONLY (pick an actor, no password), so the server never listens beyond this\nmachine. It serves the built app from ``apps/planner/dist`` when present.\n\"\"\"\n\nimport argparse\nfrom pathlib import Path\n\nimport uvicorn\n\nfrom allocation_foundation.settings import Settings, load_dotenv\n\nHOST = \"127.0.0.1\"\n\n\ndef _app(settings: Settings, static: Path):\n    from allocation_foundation.api.app import create_app\n    from allocation_foundation.api.auth import LocalActorAuth\n    from allocation_foundation.api.ops import OpsReader\n    from allocation_foundation.workflow.export_cli import build_exports\n\n    exports = build_exports(settings)\n    workflow = exports.workflow\n    return create_app(workflow, OpsReader(workflow.metrics, workflow), LocalActorAuth(workflow.metrics.identity.actors),\n                      settings.session_key, static, exports=exports)\n\n\ndef main(argv: list[str] | None = None) -> int:\n    parser = argparse.ArgumentParser(prog=\"allocation-api\", description=__doc__.splitlines()[0])\n    parser.add_argument(\"--port\", type=int, default=58000)\n    parser.add_argument(\"--static\", type=Path, default=Path(\"apps/planner/dist\"),\n                        help=\"the built planner app (npm run build)\")\n    args = parser.parse_args(argv)\n    load_dotenv(Path(\".env\"))\n    settings = Settings.from_env()\n    if not settings.session_key:\n        print(\"error: set ALLOCATION_SESSION_KEY in .env (any long random value; it signs the session cookie)\")\n        return 2\n    uvicorn.run(_app(settings, args.static), host=HOST, port=args.port)"
+  },
+  "ingest_cli": {
+   "kind": "text",
+   "id": "ingest_cli",
+   "file": "src/allocation_foundation/ingestion/cli.py",
+   "start_line": 1,
+   "end_line": 6,
+   "text": "\"\"\"``allocation-ingest``: land, inspect, replay, and check feed health.\n\nExit codes: 0 success; 1 a landed or replayed batch is quarantined; 2 usage or\nsetup error; 3 feed health has a blocking feed that is not healthy; 4 an\nunexpected failure (database, object store, unreadable input). ``poll`` keeps\ngoing past a failing file and returns the worst code seen."
+  },
+  "metrics_cli": {
+   "kind": "text",
+   "id": "metrics_cli",
+   "file": "src/allocation_foundation/metrics/cli.py",
+   "start_line": 1,
+   "end_line": 6,
+   "text": "\"\"\"``allocation-metrics``: canonical facts, inferred on-hand, confidence and exceptions (Step 5).\n\nExit codes: 0 success; 1 a build suppressed rows because a blocking feed is not healthy;\n2 usage error (unknown actor, rebuild without a reason, unknown run or exception);\n4 unexpected failure; 5 refused (the actor lacks the ``data_ops`` role).\n``--actor`` names come from the local actor directory: dev/demo only."
+  },
+  "workflow_cli": {
+   "kind": "text",
+   "id": "workflow_cli",
+   "file": "src/allocation_foundation/workflow/cli.py",
+   "start_line": 1,
+   "end_line": 7,
+   "text": "\"\"\"``allocation-workflow``: planner decisions on exceptions (Step 6).\n\nThe same rules as the planner app, for tests and scripting. Exit codes: 0 success;\n2 usage error (unknown actor, exception or tab, missing arguments); 3 refused by a rule\n(the rule's code is printed); 4 unexpected failure; 5 the actor's role may not do this;\n6 the exception changed since it was read (refresh and decide again).\n``--actor`` names come from the local actor directory: dev/demo only."
+  }
+ },
+ "scenes": [
+  {
+   "narration": [
+    {
+     "text": "MJH proposes three AI-powered decision-support products on a platform.",
+     "source_ids": [
+      "readme"
+     ]
+    },
+    {
+     "text": "The suite turns fragmented data into daily recommendations.",
+     "source_ids": [
+      "readme"
+     ]
+    }
+   ],
+   "type": "title",
+   "heading": "MJH foundation",
+   "subheading": "Three decision products on a governed platform."
+  },
+  {
+   "narration": [
+    {
+     "text": "The README frames allocation, market trends, and procurement as the core products.",
+     "source_ids": [
+      "readme"
+     ]
+    },
+    {
+     "text": "Each product targets a different decision, but shares the same foundation.",
+     "source_ids": [
+      "readme"
+     ]
+    }
+   ],
+   "type": "bullets",
+   "heading": "What it covers",
+   "items": [
+    "Allocation and sell-through",
+    "Market trends and sentiment",
+    "Secondary-market procurement"
+   ]
+  },
+  {
+   "narration": [
+    {
+     "text": "The architecture flows from ingestion to canonical data, metrics, and decisions.",
+     "source_ids": [
+      "readme"
+     ]
+    },
+    {
+     "text": "That same layer feeds the app, exports, and planner workflows.",
+     "source_ids": [
+      "readme",
+      "api_code"
+     ]
+    }
+   ],
+   "type": "diagram",
+   "mermaid": "flowchart LR\nA[Ingestion] --> B[Canonical data]\nB --> C[Metrics]\nC --> D[Decisions]\nD --> E[App]\nD --> F[Exports]\nE --> G[API]\nG --> H[Planner]\n"
+  },
+  {
+   "narration": [
+    {
+     "text": "The FastAPI app handles sign-in, correlation IDs, and refusal handling.",
+     "source_ids": [
+      "api_code"
+     ]
+    },
+    {
+     "text": "It also serves the planner app and connects to workflow exports.",
+     "source_ids": [
+      "api_code"
+     ]
+    }
+   ],
+   "type": "code",
+   "span_id": "api_code",
+   "highlight_lines": [
+    50,
+    54,
+    57,
+    59,
+    61,
+    64,
+    65,
+    66
+   ]
+  },
+  {
+   "narration": [
+    {
+     "text": "The project ships command line tools for database, ingestion, metrics, workflow, and API tasks.",
+     "source_ids": [
+      "dbcli",
+      "api_main",
+      "ingest_cli",
+      "metrics_cli",
+      "workflow_cli"
+     ]
+    },
+    {
+     "text": "The database command applies migrations, and the API serves locally on 127.0.0.1.",
+     "source_ids": [
+      "dbcli",
+      "api_main"
+     ]
+    }
+   ],
+   "type": "terminal",
+   "command_span_ids": [
+    "dbcli",
+    "api_main",
+    "ingest_cli",
+    "metrics_cli",
+    "workflow_cli"
+   ],
+   "output_span_id": null
+  },
+  {
+   "narration": [
+    {
+     "text": "The acceptance targets are strict, with 98%, 95%, 70%, 95%, and 95% thresholds.",
+     "source_ids": [
+      "targets"
+     ]
+    },
+    {
+     "text": "Those targets define the pilot bar before the suite expands.",
+     "source_ids": [
+      "targets"
+     ]
+    }
+   ],
+   "type": "metrics_table",
+   "columns": [
+    "Area",
+    "Target"
+   ],
+   "rows": [
+    [
+     "Allocation data reconciliation",
+     "98%"
+    ],
+    [
+     "Allocation work queue freshness",
+     "95%"
+    ],
+    [
+     "Market insight relevance",
+     "70%"
+    ],
+    [
+     "Market entity precision",
+     "95%"
+    ],
+    [
+     "Procurement card and grade matching",
+     "95%"
+    ]
+   ]
+  },
+  {
+   "narration": [
+    {
+     "text": "Clone the repository and explore the shared foundation.",
+     "source_ids": [
+      "readme"
+     ]
+    },
+    {
+     "text": "Then try the commands and see how the workflow fits together.",
+     "source_ids": [
+      "dbcli",
+      "api_main",
+      "ingest_cli",
+      "metrics_cli",
+      "workflow_cli"
+     ]
+    }
+   ],
+   "type": "outro",
+   "repo_url": "https://github.com/rkumar-bengaluru/MJH",
+   "cta": "Clone it and explore the shared foundation."
+  }
+ ],
+ "llm": {
+  "provider": "openai",
+  "model": "gpt-5.4-mini"
+ }
+}

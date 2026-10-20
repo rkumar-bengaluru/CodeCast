@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import uuid
 from collections import Counter
@@ -10,6 +11,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from codecast import runlog
+from codecast.agent.capture import LLMCapture
 from codecast.agent.loop import DirectorAgent, default_max_steps, initial_messages, load_director_prompt
 from codecast.agent.submit import Submitter
 from codecast.agent.tools import ToolBox
@@ -21,11 +24,13 @@ from codecast.grounding.validator import ValidationContext
 from codecast.ingest.clone import ingest, repo_name
 from codecast.llm.pricing import estimate_cost
 from codecast.llm.registry import create_provider
-from codecast.models import DURATION_RANGE_S, RepoMap, SceneFrames, Storyboard
+from codecast.models import RepoMap, SceneFrames, Storyboard
 from codecast.render.renderer import Renderer, render_all
 from codecast.report import ReportBuilder, RunReport, VideoInfo
 from codecast.voice.engines import select_engine
 from codecast.voice.timeline import Timeline, duration_feedback, synthesize_storyboard, write_srt
+
+log = logging.getLogger("codecast.pipeline")
 
 STAGES = ("ingest", "agent", "voice", "render", "compose")
 MAX_DURATION_ROUNDS = 2
@@ -40,7 +45,7 @@ class RunOptions:
     allow_network_tts: bool = False
     from_stage: str | None = None
     run_id: str | None = None
-    duration_range: tuple[float, float] = DURATION_RANGE_S
+    verbose: bool = False
 
 
 def safe_mermaid_check(check):
@@ -80,7 +85,8 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
     except Exception:  # noqa: BLE001 - reported properly at the ingest stage
         name = "unknown"
     current = "preflight"
-    lo, hi = opts.duration_range
+    lo, hi = cfg.limits.duration_range
+    detach = lambda: None  # noqa: E731 - replaced once the workspace exists
     try:
         if opts.from_stage and opts.from_stage not in STAGES[2:]:
             raise ConfigError(f"--from-stage must be one of {STAGES[2:]}")
@@ -88,6 +94,9 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
             raise ConfigError("--from-stage requires --run <run_id>")
         resume_at = STAGES.index(opts.from_stage) if opts.from_stage else 0
         ws.mkdir(parents=True, exist_ok=True)
+        detach = runlog.attach(ws, verbose=opts.verbose)
+        log.info("run %s: repo=%s from_stage=%s limits=%s", run_id, opts.repo, opts.from_stage,
+                 cfg.limits.model_dump())
         if resume_at > 0:
             _carry_forward(rep, ws / "run_report.json", STAGES[:resume_at])  # read before anything overwrites it
         if preflight:
@@ -98,6 +107,8 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
         if engine is None:
             engine = select_engine(cfg.voice, allow_network=opts.allow_network_tts)
         rep.tts_engine = engine.name
+        rep.tts_voice = getattr(engine, "voice_id", None)
+        log.info("tts: %s voice %s", rep.tts_engine, rep.tts_voice)
 
         # [1] ingest
         current = "ingest"
@@ -122,15 +133,17 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
                     rep.llm.model = provider.model
                     submitter = Submitter(ValidationContext(
                         repomap=repomap, llm={"provider": provider.name, "model": provider.model},
-                        output_allowlist=cfg.render.terminal_output_allowlist, mermaid_check=safe_mermaid_check(renderer.mermaid_check)))
+                        output_allowlist=cfg.render.terminal_output_allowlist, mermaid_check=safe_mermaid_check(renderer.mermaid_check),
+                        limits=cfg.limits))
                     max_steps = opts.max_steps or cfg.agent.max_steps or default_max_steps(repomap.n_files)
                     agent = DirectorAgent(provider, ToolBox(repomap, submitter), max_steps=max_steps,
                                           max_total_tokens=cfg.agent.max_total_tokens,
                                           wall_clock_s=cfg.agent.wall_clock_s, revision_steps=cfg.agent.revision_steps,
                                           temperature=cfg.llm.temperature, max_tokens=cfg.llm.max_tokens,
-                                          timeout_s=cfg.llm.timeout_s, transcript=Transcript(ws / "transcript.jsonl"))
+                                          timeout_s=cfg.llm.timeout_s, transcript=Transcript(ws / "transcript.jsonl"),
+                                          capture=LLMCapture(ws / "llm"))
                     try:
-                        sb = agent.run(initial_messages(repomap, load_director_prompt()))
+                        sb = agent.run(initial_messages(repomap, load_director_prompt(cfg.limits)))
                     finally:
                         _agent_stats(rep, agent, submitter, cfg)
                     _write_json(ws / "storyboard.json", sb.model_dump_json(indent=1))
@@ -150,7 +163,9 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
                                                 f"after {round_no} revision rounds")
                         round_no += 1
                         rep.validation.duration_rounds = round_no
-                        feedback = duration_feedback(timeline, sb, target=(lo, hi))
+                        feedback = duration_feedback(timeline, sb, limits=cfg.limits)
+                        log.info("duration %.1fs outside [%g, %g]; revision round %d: %s", timeline.total, lo, hi,
+                                 round_no, feedback)
                         agent.transcript.log_event(agent.stats.steps_used, "duration_feedback", json.loads(feedback))
                         submitter.begin_revision(sb, target_words=json.loads(feedback).get("target_words"))
                         current = "agent"
@@ -192,8 +207,10 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
             (staging / f).replace(out_root / name / f)
         shutil.rmtree(staging, ignore_errors=True)
         _write_json(ws / "run_report.json", final.model_dump_json(indent=1))
+        log.info("run %s ok: %.1fs video at %s", run_id, rep.video.duration_s, rep.video.path)
         return final
     except BaseException as e:  # noqa: BLE001 - every failure becomes a typed report
+        log.error("run %s failed at stage %s", run_id, current, exc_info=e, extra=runlog.FILE_ONLY)
         if isinstance(e, KeyboardInterrupt):
             rb.fail(CodecastError("interrupted by user", stage=current), stage=current)
         else:
@@ -207,6 +224,8 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
                 pass
         shutil.rmtree(out_root / name / f".staging-{run_id}", ignore_errors=True)
         return final
+    finally:
+        detach()
 
 
 def _carry_forward(rep: RunReport, path: Path, kept_stages: tuple[str, ...]) -> None:

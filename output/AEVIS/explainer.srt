@@ -1,0 +1,67 @@
+1
+00:00:00,000 --> 00:00:04,319
+AEVIS is a measurement and governance platform for RAG systems.
+
+2
+00:00:04,469 --> 00:00:09,159
+It anchors ground truth to source spans and shows where pipelines break.
+
+3
+00:00:09,667 --> 00:00:15,811
+The lifecycle spans project setup, corpus governance, benchmark approval, and
+
+4
+00:00:15,811 --> 00:00:16,609
+execution.
+
+5
+00:00:16,759 --> 00:00:21,136
+The web app is a React and TypeScript shell over the API.
+
+6
+00:00:21,667 --> 00:00:27,135
+The FastAPI app loads the registry, builds storage, and mounts routers.
+
+7
+00:00:27,285 --> 00:00:32,033
+It refuses to start if the registry is invalid, which protects the platform.
+
+8
+00:00:32,567 --> 00:00:37,408
+Admin routes create users, update profiles, and reset passwords.
+
+9
+00:00:37,558 --> 00:00:41,622
+Each change is audited, so operator actions stay traceable.
+
+10
+00:00:42,133 --> 00:00:47,091
+Target adapters inject the idempotency key and attempt header automatically.
+
+11
+00:00:47,241 --> 00:00:52,291
+That keeps retries reproducible when the simulator or a real endpoint is called.
+
+12
+00:00:52,800 --> 00:00:56,875
+The bake-off scores 242 cases across four judges.
+
+13
+00:00:57,025 --> 00:01:04,618
+HHEM reaches 0.733 sensitivity, while LettuceDetect reaches 0.944 specificity.
+
+14
+00:01:05,133 --> 00:01:09,882
+You can run the simulator with uvicorn, then query it with curl.
+
+15
+00:01:10,032 --> 00:01:14,850
+For the bake-off, create a virtual environment and run the harness.
+
+16
+00:01:15,367 --> 00:01:19,941
+Clone the repository, start the stack, and explore the workflow.
+
+17
+00:01:20,091 --> 00:01:24,271
+Then try the simulator and the bake-off to see AEVIS in action.

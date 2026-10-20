@@ -17,6 +17,7 @@ from codecast.errors import CodecastError, ConfigError
 
 class TTSEngine(Protocol):
     name: str
+    voice_id: str  # which voice within the engine; part of the audio cache key
 
     def synthesize(self, text: str, out_wav: Path) -> None: ...
 
@@ -38,7 +39,7 @@ class SayEngine:
     name = "say"
 
     def __init__(self, voice: str = "Samantha"):
-        self.voice = voice
+        self.voice = self.voice_id = voice
 
     def synthesize(self, text: str, out_wav: Path) -> None:
         # macOS `say` treats `<word>` as embedded markup and silently drops the rest of the text,
@@ -57,6 +58,7 @@ class PiperEngine:
 
     def __init__(self, model_path: Path):
         from piper import PiperVoice
+        self.voice_id = Path(model_path).stem
         self._voice = PiperVoice.load(str(model_path))
 
     def synthesize(self, text: str, out_wav: Path) -> None:
@@ -72,7 +74,7 @@ class EdgeEngine:
     name = "edge-tts"
 
     def __init__(self, voice: str = "en-US-AriaNeural"):
-        self.voice = voice
+        self.voice = self.voice_id = voice
 
     def synthesize(self, text: str, out_wav: Path) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -99,13 +101,27 @@ def _say_available(voice: str) -> bool:
 
 
 def piper_model_path(cfg: VoiceConfig) -> Path:
+    if cfg.model_path:
+        return Path(cfg.model_path).expanduser()
     return cfg.voices_path / f"{cfg.piper_voice}.onnx"
+
+
+def _custom_voice_problem(cfg: VoiceConfig) -> str | None:
+    model = piper_model_path(cfg)
+    if not model.is_file():
+        return f"custom voice not found: {model}"
+    sidecar = model.with_name(model.name + ".json")
+    if not sidecar.is_file():
+        return f"custom voice config missing: {sidecar} (piper needs it next to the .onnx)"
+    return None
 
 
 def engine_status(cfg: VoiceConfig, *, allow_network: bool) -> dict[str, str]:
     status = {}
     if not _piper_installed():
         status["piper"] = "piper-tts not installed"
+    elif cfg.model_path:
+        status["piper"] = _custom_voice_problem(cfg) or "ok"
     elif not piper_model_path(cfg).is_file():
         status["piper"] = "voice missing; run `codecast fetch-voice`"
     else:
@@ -120,6 +136,9 @@ def engine_status(cfg: VoiceConfig, *, allow_network: bool) -> dict[str, str]:
 
 def select_engine(cfg: VoiceConfig, *, allow_network: bool) -> TTSEngine:
     st = engine_status(cfg, allow_network=allow_network)
+    if cfg.model_path and st["piper"] != "ok":
+        # An explicitly chosen voice never silently falls back to another one.
+        raise ConfigError(f"{st['piper']} (from --voice-model or CODECAST_VOICE_MODEL)")
     if st["piper"] == "ok":
         return PiperEngine(piper_model_path(cfg))
     if st["say"] == "ok":

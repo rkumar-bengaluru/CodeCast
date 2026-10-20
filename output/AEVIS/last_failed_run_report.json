@@ -1,0 +1,63 @@
+{
+ "run_id": "20261020T114621Z-9ce380",
+ "started_at": "2026-10-20T11:46:21+00:00",
+ "ended_at": "2026-10-20T11:48:19+00:00",
+ "repo_url": "C:/2026/rkumar-ava/AEVIS",
+ "commit_sha": "026160fe0eaa935385292a248a44368959e9f5b7",
+ "llm": {
+  "provider": "openai",
+  "model": "gpt-5.4-mini",
+  "temperature": 0.3
+ },
+ "status": "failed",
+ "exit_code": 1,
+ "failure": {
+  "stage": "agent",
+  "code": "CodecastError",
+  "message": "LLM provider error: Error code: 400 - {'error': {'message': \"Invalid value for 'content': expected a string, got null.\", 'type': 'invalid_request_error', 'param': 'messages.[49].content', 'code': None}}",
+  "traceback": null
+ },
+ "ingest": {
+  "n_files": 595,
+  "skipped_by_reason": {
+   "ignored_dir": 1,
+   "too_large": 16
+  }
+ },
+ "budget": {
+  "max_steps": 35,
+  "steps_used": 20,
+  "tool_calls": {
+   "read_file": 17,
+   "grep": 3,
+   "submit_storyboard": 6,
+   "read_json": 1
+  }
+ },
+ "usage": {
+  "input": 28156,
+  "output": 7750,
+  "cache_read_input": 303360,
+  "cache_write_input": 0
+ },
+ "cost_usd": 0.078744,
+ "cost_unknown_reason": null,
+ "context": null,
+ "validation": {
+  "storyboard_rounds": 6,
+  "duration_rounds": 2,
+  "failures_by_code": {
+   "WRONG_SOURCE_KIND": 2,
+   "CODE_TOO_LONG": 2,
+   "HIGHLIGHT_OUT_OF_RANGE": 1,
+   "NARRATION_UNCHANGED": 1
+  }
+ },
+ "tts_engine": "piper",
+ "stage_seconds": {
+  "ingest": 20.297,
+  "agent": 61.187,
+  "voice": 30.609
+ },
+ "video": null
+}

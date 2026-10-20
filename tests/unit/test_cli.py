@@ -1,3 +1,5 @@
+import pytest
+
 from codecast import cli
 
 
@@ -33,3 +35,102 @@ def test_bad_config_is_exit_7(tmp_path):
 def test_from_stage_requires_run_id(tmp_path):
     assert cli.main(["run", "--repo", "x", "--out", str(tmp_path), "--from-stage", "render",
                      "--workspace", str(tmp_path / "ws")]) == 7
+
+
+def test_dotenv_in_cwd_is_loaded(monkeypatch, tmp_path, capsys):
+    monkeypatch.delenv("CODECAST_DURATION_MAX_S", raising=False)
+    (tmp_path / ".env").write_text("CODECAST_DURATION_MAX_S=ten\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["doctor"]) == 7
+    assert "CODECAST_DURATION_MAX_S='ten'" in capsys.readouterr().err
+
+
+
+def _capture_cfg(monkeypatch):
+    from codecast.errors import IngestError
+    from codecast.report import ReportBuilder
+    seen = {}
+
+    def fake_run(opts, cfg, **kw):
+        seen["cfg"] = cfg
+        rb = ReportBuilder("r", opts.repo, cfg)
+        rb.fail(IngestError("stop here"), stage="ingest")
+        return rb.finish()
+    monkeypatch.setattr(cli, "pipeline_run", fake_run)
+    return seen
+
+
+def test_voice_model_flag_beats_env(monkeypatch, tmp_path):
+    seen = _capture_cfg(monkeypatch)
+    monkeypatch.setenv("CODECAST_VOICE_MODEL", "from-env.onnx")
+    cli.main(["run", "--repo", "x", "--out", str(tmp_path), "--voice-model", "flag.onnx"])
+    assert seen["cfg"].voice.model_path == "flag.onnx"
+
+
+def test_env_voice_used_without_flag(monkeypatch, tmp_path):
+    seen = _capture_cfg(monkeypatch)
+    monkeypatch.setenv("CODECAST_VOICE_MODEL", "from-env.onnx")
+    cli.main(["run", "--repo", "x", "--out", str(tmp_path)])
+    assert seen["cfg"].voice.model_path == "from-env.onnx"
+
+
+
+def test_failure_output_lists_paths(monkeypatch, tmp_path, capsys):
+    from codecast.errors import CodecastError
+    from codecast.report import ReportBuilder
+
+    def fake_run(opts, cfg, **kw):
+        rb = ReportBuilder("r1", opts.repo, cfg)
+        rb.fail(CodecastError("agent step 20: OpenAI rejected the request (HTTP 400 x): y\n  request sent: z.json",
+                              stage="agent"), stage="agent")
+        return rb.finish()
+    monkeypatch.setattr(cli, "pipeline_run", fake_run)
+    ws = tmp_path / "ws"
+    assert cli.main(["run", "--repo", "x", "--out", str(tmp_path), "--workspace", str(ws)]) == 1
+    err = capsys.readouterr().err.splitlines()
+    assert err[0] == "codecast FAILED (exit 1) at stage agent"
+    assert err[1] == "  agent step 20: OpenAI rejected the request (HTTP 400 x): y"
+    assert err[2] == "  request sent: z.json"
+    assert err[3] == f"  full log: {ws / 'r1' / 'run.log'}"
+    assert err[4] == f"  run report: {ws / 'r1' / 'run_report.json'}"
+
+
+def test_compute_video_length_needs_no_repo(monkeypatch, tmp_path, capsys):
+    from codecast import estimate
+    from tests.fakes import SilenceEngine
+    from tests.unit.test_estimate import write_storyboard
+    write_storyboard(tmp_path / "run1")
+    monkeypatch.setattr(estimate, "select_engine", lambda cfg, allow_network: SilenceEngine(0.4))
+    monkeypatch.setattr(cli, "pipeline_run", lambda *a, **k: pytest.fail("pipeline must not run"))
+    assert cli.main(["run", "--run", "run1", "--compute-video-length", "--workspace", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "total" in out and f"saved: {tmp_path / 'run1' / 'length_estimate.json'}" in out
+
+
+def test_compute_video_length_requires_run(capsys):
+    assert cli.main(["run", "--compute-video-length"]) == 7
+    assert "--run" in capsys.readouterr().err
+
+
+def test_compute_video_length_rejects_from_stage():
+    assert cli.main(["run", "--run", "r", "--compute-video-length", "--from-stage", "voice"]) == 7
+
+
+def test_run_without_repo_still_rejected(capsys):
+    assert cli.main(["run"]) == 7
+    assert "--repo" in capsys.readouterr().err
+
+
+def test_real_failure_prints_no_traceback(monkeypatch, tmp_path, capsys):
+    from codecast import preflight
+    monkeypatch.setattr(preflight, "ffmpeg_problems", lambda: [])
+    monkeypatch.setattr(preflight, "_chromium_problem", lambda: None)
+    voice = tmp_path / "me.onnx"
+    voice.write_bytes(b"x")                                    # no me.onnx.json next to it
+    ws = tmp_path / "ws"
+    code = cli.main(["run", "--repo", str(tmp_path), "--out", str(tmp_path / "out"), "--workspace", str(ws),
+                     "--run", "r1", "--voice-model", str(voice)])
+    err = capsys.readouterr().err
+    assert code == 7 and "Traceback" not in err
+    assert err.startswith("codecast FAILED (exit 7) at stage preflight")
+    assert "Traceback" in (ws / "r1" / "run.log").read_text(encoding="utf-8")

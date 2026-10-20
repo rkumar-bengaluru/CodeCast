@@ -2,31 +2,50 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from collections import Counter
 from dataclasses import dataclass, field
 from importlib import resources
+from string import Template
 from typing import Callable
 
 from codecast.agent.tools import ToolBox
+from codecast.agent.capture import LLMCapture
+from codecast.runlog import FILE_ONLY
 from codecast.agent.transcript import Transcript
+from codecast.config import LimitsConfig
 from codecast.errors import BudgetExceeded, CodecastError, ConfigError
 from codecast.llm.base import LLMProvider, complete_with_retries
-from codecast.llm.errors import AuthError, ContextLengthError, ProviderError, RetryableError
+from codecast.llm.errors import AuthError, ContextLengthError, LLMError, ProviderError, RetryableError
 from codecast.llm.types import ChatRequest, ChatResponse, Message, TextPart, ToolResultPart, Usage
 from codecast.models import RepoMap, Storyboard
+
+log = logging.getLogger("codecast.agent")
 
 NUDGE = ("You did not call a tool. Finish now by calling submit_storyboard with your best fully grounded "
          "storyboard.")
 MAX_NUDGES = 2
+MAX_EMPTY_REPLIES = 2
+PROVIDER_NAMES = {"openai": "OpenAI", "anthropic": "Anthropic"}
 
 
 def default_max_steps(n_files: int) -> int:
     return 30 + min(30, n_files // 50)
 
 
-def load_director_prompt() -> str:
-    return resources.files("codecast.agent").joinpath("prompts/director.md").read_text(encoding="utf-8")
+AIM_SPREAD_WORDS = 15  # the prompt's "aim for" band is target ± this
+
+
+def load_director_prompt(limits: LimitsConfig | None = None) -> str:
+    # string.Template, not str.format or Jinja: the prompt is full of literal JSON braces and has no "$".
+    limits = limits or LimitsConfig()
+    text = resources.files("codecast.agent").joinpath("prompts/director.md").read_text(encoding="utf-8")
+    return Template(text).substitute(
+        duration_min=f"{limits.duration_min_s:g}", duration_max=f"{limits.duration_max_s:g}",
+        min_words=limits.min_words, max_words=limits.max_words,
+        aim_lo=max(limits.min_words, limits.target_words - AIM_SPREAD_WORDS),
+        aim_hi=min(limits.max_words, limits.target_words + AIM_SPREAD_WORDS))
 
 
 def initial_messages(repomap: RepoMap, system_prompt: str) -> list[Message]:
@@ -35,6 +54,10 @@ def initial_messages(repomap: RepoMap, system_prompt: str) -> list[Message]:
             f"Explore with the tools, then call submit_storyboard. "
             f"The outro repo_url must be exactly {repomap.repo_url}.")
     return [Message("system", [TextPart(system_prompt)]), Message("user", [TextPart(user)])]
+
+
+def _first_text(result: ToolResultPart) -> str:
+    return next((p.text for p in result.parts if isinstance(p, TextPart)), "")
 
 
 @dataclass
@@ -51,7 +74,7 @@ class DirectorAgent:
     def __init__(self, provider: LLMProvider, toolbox: ToolBox, *, max_steps: int, max_total_tokens: int,
                  wall_clock_s: float, revision_steps: int = 15, temperature: float = 0.3,
                  max_tokens: int = 4096, timeout_s: float = 120, transcript: Transcript | None = None,
-                 clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep):
+                 capture: LLMCapture | None = None, clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep):
         if not provider.caps.tool_use:
             raise ConfigError(f"{provider.name} model {provider.model} does not support tool use")
         self.provider = provider
@@ -64,6 +87,7 @@ class DirectorAgent:
         self.max_tokens = max_tokens
         self.timeout_s = timeout_s
         self.transcript = transcript
+        self.capture = capture
         self.clock = clock
         self.sleep = sleep
         self.stats = AgentStats(max_steps=max_steps)
@@ -74,6 +98,8 @@ class DirectorAgent:
 
     def run(self, messages: list[Message]) -> Storyboard:
         self.messages = list(messages)
+        if self.capture and self.messages and self.messages[0].role == "system":
+            self.capture.system_prompt(self.messages[0].text())
         self._logged = 0
         self._t0 = self.clock()
         return self._loop(self.stats.max_steps)
@@ -106,23 +132,46 @@ class DirectorAgent:
                 return out
         return []
 
-    def _complete(self, req: ChatRequest) -> ChatResponse:
+    def _record(self, step: int, response: dict) -> None:
+        if self.capture:
+            self.capture.request(step, getattr(self.provider, "last_request", None))
+            self.capture.response(step, response)
+
+    def _complete(self, req: ChatRequest, step: int) -> ChatResponse:
+        if hasattr(self.provider, "last_request"):
+            self.provider.last_request = None  # never attribute an older body to this step
         try:
-            return complete_with_retries(self.provider, req, sleep=self.sleep)
-        except ContextLengthError as e:
+            resp = complete_with_retries(self.provider, req, sleep=self.sleep)
+        except LLMError as e:
+            self._record(step, {"error": {"type": type(e).__name__, "message": str(e)}})
+            log.error("step %d: %s: %s", step, type(e).__name__, e, extra=FILE_ONLY)
+            self._raise_mapped(e, step)
+        self._record(step, getattr(self.provider, "last_response", None) or {
+            "stop": resp.stop, "text": resp.message.text(),
+            "tool_calls": [{"name": c.name, "args": c.args} for c in resp.message.tool_calls()]})
+        return resp
+
+    def _raise_mapped(self, e: LLMError, step: int) -> None:
+        where = f"agent step {step}: "
+        sent = self.capture.last_request_path if self.capture else None
+        tail = f"\n  request sent: {sent}" if sent else ""
+        if isinstance(e, ContextLengthError):
             self.stats.context = {"window": self.provider.caps.context_window,
                                   "input_tokens_at_failure": self._last_usage.total_input,
                                   "last_turn_tool_outputs": self._last_turn_outputs()}
-            raise BudgetExceeded(f"context window exhausted: {e}", details=self.stats.context) from e
-        except AuthError as e:
-            raise ConfigError(f"LLM authentication failed: {e}") from e
-        except RetryableError as e:
-            raise CodecastError(f"LLM provider unavailable after retries: {e}", stage="agent") from e
-        except ProviderError as e:
-            raise CodecastError(f"LLM provider error: {e}", stage="agent") from e
+            raise BudgetExceeded(f"{where}context window exhausted: {e}{tail}", details=self.stats.context) from e
+        if isinstance(e, AuthError):
+            raise ConfigError(f"{where}LLM authentication failed: {e}{tail}") from e
+        if isinstance(e, RetryableError):
+            raise CodecastError(f"{where}LLM provider unavailable after retries: {e}{tail}", stage="agent") from e
+        if e.status is not None:
+            name = PROVIDER_NAMES.get(e.provider or "", e.provider or self.provider.name)
+            detail = " ".join(x for x in (f"HTTP {e.status}", e.error_type) if x) + (f", {e.param}" if e.param else "")
+            raise CodecastError(f"{where}{name} rejected the request ({detail}): {e}{tail}", stage="agent") from e
+        raise CodecastError(f"{where}LLM provider error: {e}{tail}", stage="agent") from e
 
     def _loop(self, steps: int) -> Storyboard:
-        nudges = 0
+        nudges = empties = 0
         choice: str | dict = "auto"
         for _ in range(steps):
             self._check_budget()
@@ -133,15 +182,26 @@ class DirectorAgent:
             if self.transcript:
                 self.transcript.log_request(step, req, self.messages[self._logged:])
                 self._logged = len(self.messages)
-            resp = self._complete(req)
+            resp = self._complete(req, step)
             self._last_usage = resp.usage
             self.stats.usage = self.stats.usage + resp.usage
             if self.transcript:
                 self.transcript.log_response(step, resp)
-            self.messages.append(resp.message)
-            self._logged = len(self.messages)
+            # An empty assistant turn is invalid on the wire for every provider, so it never enters history.
             calls = resp.message.tool_calls()
+            log.info("step %d: %s | stop=%s | in=%d out=%d", step, ", ".join(c.name for c in calls) or "-",
+                     resp.stop, resp.usage.total_input, resp.usage.output_tokens)
+            if resp.message.parts:
+                self.messages.append(resp.message)
+                empties = 0
+            else:
+                log.warning("step %d: the model returned an empty reply", step)
+                empties += 1
+                if empties >= MAX_EMPTY_REPLIES:
+                    raise CodecastError("model returned empty replies", stage="agent")
+            self._logged = len(self.messages)
             if not calls:
+                log.warning("step %d: no tool call; nudging toward submit_storyboard", step)
                 nudges += 1
                 self.stats.nudges += 1
                 if nudges > MAX_NUDGES:
@@ -155,6 +215,9 @@ class DirectorAgent:
                 self.stats.tool_calls[call.name] += 1
                 ex = self.toolbox.execute(call)
                 results.append(ex.result)
+                if call.name == "submit_storyboard":
+                    log.info("step %d: submit_storyboard %s", step, "accepted" if ex.storyboard is not None
+                             else _first_text(ex.result)[:600])
                 if ex.storyboard is not None:
                     accepted = ex.storyboard
             self.messages.append(Message("tool", results))

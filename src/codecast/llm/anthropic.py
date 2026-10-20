@@ -8,7 +8,7 @@ from typing import Any
 
 import anthropic as sdk
 
-from codecast.llm.errors import AuthError, ContextLengthError, LLMError, ProviderError, RetryableError
+from codecast.llm.errors import AuthError, ContextLengthError, LLMError, ProviderError, RetryableError, sdk_error_fields
 from codecast.llm.types import (
     ChatRequest, ChatResponse, ImagePart, Message, ProviderCaps, TextPart, ToolCallPart, ToolResultPart, Usage,
 )
@@ -93,19 +93,21 @@ def parse_response(data: dict) -> ChatResponse:
 
 
 def map_error(e: Exception) -> LLMError:
+    f = sdk_error_fields(e, "anthropic")
+    msg = f.pop("message")
     if isinstance(e, (sdk.AuthenticationError, sdk.PermissionDeniedError)):
-        return AuthError(str(e))
+        return AuthError(msg, **f)
     if isinstance(e, (sdk.RateLimitError, sdk.APIConnectionError, sdk.InternalServerError)):
-        return RetryableError(str(e))
+        return RetryableError(msg, **f)
     if isinstance(e, sdk.APIStatusError):
         if e.status_code >= 500:
-            return RetryableError(str(e))
+            return RetryableError(msg, **f)
         text = str(e).lower()
         if e.status_code in (400, 413) and ("prompt is too long" in text or "context window" in text
                                             or "too many tokens" in text):
-            return ContextLengthError(str(e))
-        return ProviderError(str(e))
-    return ProviderError(f"{type(e).__name__}: {e}")
+            return ContextLengthError(msg, **f)
+        return ProviderError(msg, **f)
+    return ProviderError(f"{type(e).__name__}: {e}", provider="anthropic")
 
 
 class AnthropicProvider:
@@ -116,13 +118,17 @@ class AnthropicProvider:
         self.model = model
         self.caps = replace(ANTHROPIC_CAPS, **(caps_override or {}))
         self._client = client or sdk.Anthropic(api_key=api_key, base_url=base_url, max_retries=0)
+        self.last_request: dict | None = None   # exact body of the latest call, for workspace/<run>/llm/
+        self.last_response: dict | None = None
 
     def complete(self, req: ChatRequest) -> ChatResponse:
         body = build_request(req, self.model, self.caps)
+        self.last_request, self.last_response = dict(body), None
         try:
             # This SDK's create() has no `temperature` kwarg; send it through extra_body.
             extra = {"temperature": body.pop("temperature")} if "temperature" in body else None
             msg = self._client.messages.create(**body, extra_body=extra, timeout=req.timeout_s)
         except Exception as e:  # noqa: BLE001 - every SDK error is normalized
             raise map_error(e) from e
-        return parse_response(msg.model_dump())
+        self.last_response = msg.model_dump()
+        return parse_response(self.last_response)

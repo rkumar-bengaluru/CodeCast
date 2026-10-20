@@ -109,3 +109,22 @@ def test_errors_normalized(response, exc):
     respx.post(URL).mock(return_value=response)
     with pytest.raises(exc):
         OpenAIProvider(api_key="k", model="m").complete(ChatRequest(messages=conversation()[:2]))
+
+
+def test_assistant_without_text_or_calls_sends_empty_string():
+    req = ChatRequest(messages=[Message("user", [TextPart("hi")]), Message("assistant", [])], tools=[])
+    body = build_request(req, "m", OPENAI_CAPS, base_url=None)
+    assert body["messages"][1]["content"] == ""
+
+
+
+@respx.mock
+def test_map_error_extracts_fields():
+    respx.post(URL).mock(return_value=httpx.Response(400, json={"error": {
+        "message": "Invalid value for 'content': expected a string, got null.", "type": "invalid_request_error",
+        "param": "messages.[49].content", "code": None}}))
+    with pytest.raises(ProviderError) as ei:
+        OpenAIProvider(api_key="k", model="m").complete(ChatRequest(messages=conversation()[:2]))
+    e = ei.value
+    assert (e.provider, e.status, e.error_type, e.param) == ("openai", 400, "invalid_request_error", "messages.[49].content")
+    assert str(e) == "Invalid value for 'content': expected a string, got null."

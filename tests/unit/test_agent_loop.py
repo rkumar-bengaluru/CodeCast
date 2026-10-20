@@ -4,11 +4,12 @@ from codecast.agent.loop import DirectorAgent, default_max_steps, initial_messag
 from codecast.agent.submit import Submitter
 from codecast.agent.tools import ToolBox
 from codecast.agent.transcript import Transcript, load_responses
-from codecast.errors import BudgetExceeded, ConfigError, ValidationFailed
+from codecast.config import LimitsConfig
+from codecast.errors import BudgetExceeded, CodecastError, ConfigError, ValidationFailed
 from codecast.grounding.validator import ValidationContext
 from codecast.llm.errors import AuthError, ContextLengthError
 from codecast.llm.fake import FAKE_CAPS, FakeProvider, say, tool_call
-from codecast.llm.types import ProviderCaps, ToolResultPart, Usage
+from codecast.llm.types import ChatResponse, Message, ProviderCaps, ToolResultPart, Usage
 
 from tests.unit.storyboards import valid_submission
 
@@ -40,7 +41,7 @@ def test_default_max_steps():
 
 def test_prompt_mentions_catalog_and_rules():
     p = load_director_prompt()
-    for word in ("submit_storyboard", "metrics_table", "ken_burns", "110", "200", "50–80", "letters only"):
+    for word in ("submit_storyboard", "metrics_table", "ken_burns", "110", "200", "50–300", "letters only"):
         assert word in p
 
 
@@ -183,3 +184,60 @@ def test_worked_example_is_valid_and_grounded():
             for c in extract_claims(text):
                 assert identifier_grounded(c.token, everything), (c, text)
     assert 120 <= words <= 140, words
+
+
+def test_empty_reply_is_not_added_to_history(tiny_repo):
+    empty = ChatResponse(Message("assistant", []), "end_turn", Usage())
+    agent, provider, _ = make(tiny_repo, [empty, tool_call("submit_storyboard", {"storyboard": valid_submission()})])
+    agent.run(msgs(tiny_repo))
+    second = provider.requests[1].messages
+    assert all(m.parts for m in second if m.role == "assistant")
+    assert second[-1].role == "user" and "did not call a tool" in second[-1].text()
+
+
+def test_two_empty_replies_stop_the_run(tiny_repo):
+    empty = ChatResponse(Message("assistant", []), "end_turn", Usage())
+    agent, provider, _ = make(tiny_repo, [empty, empty, empty, empty, empty])
+    with pytest.raises(CodecastError, match="model returned empty replies"):
+        agent.run(msgs(tiny_repo))
+    assert len(provider.requests) == 2
+
+
+def test_prompt_defaults_render_default_numbers():
+    p = load_director_prompt()
+    assert "50–300 second" in p and "**110–200**" in p and "**140–170**" in p and "$" not in p
+
+
+def test_prompt_follows_limits():
+    p = load_director_prompt(LimitsConfig(duration_max_s=600, max_words=1200, target_words=1000))
+    assert "50–600 second" in p and "**110–1200**" in p and "**985–1015**" in p
+    assert "outside 50–600 s" in p
+
+
+
+def test_provider_error_message_names_step_and_request(tiny_repo, tmp_path):
+    from codecast.agent.capture import LLMCapture
+    from codecast.llm.errors import ProviderError
+    err = ProviderError("bad content", provider="openai", status=400, error_type="invalid_request_error",
+                        param="messages.[3].content")
+    agent, _, _ = make(tiny_repo, [err], capture=LLMCapture(tmp_path / "llm"))
+    with pytest.raises(CodecastError) as ei:
+        agent.run(msgs(tiny_repo))
+    assert ei.value.message.startswith("agent step 1: OpenAI rejected the request (HTTP 400 invalid_request_error, "
+                                       "messages.[3].content): bad content")
+    assert "request sent: " in ei.value.message and "step-001.request.json" in ei.value.message
+
+
+def test_error_without_capture_has_no_request_line(tiny_repo):
+    agent, _, _ = make(tiny_repo, [AuthError("bad key", provider="openai", status=401)])
+    with pytest.raises(ConfigError) as ei:
+        agent.run(msgs(tiny_repo))
+    assert ei.value.message == "agent step 1: LLM authentication failed: bad key"
+
+
+def test_provider_error_without_http_status_keeps_plain_wording(tiny_repo):
+    from codecast.llm.errors import ProviderError
+    agent, _, _ = make(tiny_repo, [ProviderError("socket closed")])
+    with pytest.raises(CodecastError) as ei:
+        agent.run(msgs(tiny_repo))
+    assert ei.value.message == "agent step 1: LLM provider error: socket closed"
