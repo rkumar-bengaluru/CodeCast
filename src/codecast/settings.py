@@ -22,11 +22,15 @@ VOICE_MODEL_VAR = "CODECAST_VOICE_MODEL"
 _LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$")
 
 
+_QUOTED = re.compile(r"""^(['"])(.*?)\1(?:\s+#.*)?$""")
+
+
 def _value(raw: str) -> str:
     # Quotes are stripped but nothing inside them is unescaped: Windows paths such as
     # "C:\2026\rkumar\..." must survive as written (python-dotenv would turn "\r" into a carriage return).
-    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "'\"":
-        return raw[1:-1]
+    m = _QUOTED.match(raw)
+    if m:
+        return m.group(2)
     return re.sub(r"\s+#.*$", "", raw)
 
 
@@ -35,7 +39,11 @@ def load_env_file(path: Path = Path(".env")) -> bool:
     path = Path(path)
     if not path.is_file():
         return False
-    for line in path.read_text(encoding="utf-8-sig").splitlines():
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        raise ConfigError(f"{path} is not UTF-8 text; save it as UTF-8 (PowerShell 5 `>` writes UTF-16)") from None
+    for line in text.splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         m = _LINE.match(line)

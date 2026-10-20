@@ -135,7 +135,10 @@ def duration_feedback(timeline: Timeline, sb: Storyboard, *, limits: LimitsConfi
     wps = words / timeline.narration_seconds if timeline.narration_seconds else 2.5
     lo, hi = limits.duration_range
     min_words, max_words = limits.min_words, limits.max_words
-    goal = (lo + hi) / 2
+    # Aim at the middle of the range the word ceiling can actually reach: with a wide window (50-300 s) and
+    # 200 words the plain midpoint is unreachable and every revision would target exactly max_words.
+    reachable_hi = min(hi, timeline.total + (max_words - words) / wps)
+    goal = (lo + max(lo, reachable_hi)) / 2
     naive = words + round((goal - timeline.total) * wps)
     target_words = min(max(naive, min_words), max_words)
     delta_words = target_words - words

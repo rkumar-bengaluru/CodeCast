@@ -12,6 +12,7 @@ from typing import Callable
 
 from codecast.agent.tools import ToolBox
 from codecast.agent.capture import LLMCapture
+from codecast.runlog import FILE_ONLY
 from codecast.agent.transcript import Transcript
 from codecast.config import LimitsConfig
 from codecast.errors import BudgetExceeded, CodecastError, ConfigError
@@ -143,7 +144,7 @@ class DirectorAgent:
             resp = complete_with_retries(self.provider, req, sleep=self.sleep)
         except LLMError as e:
             self._record(step, {"error": {"type": type(e).__name__, "message": str(e)}})
-            log.error("step %d: %s: %s", step, type(e).__name__, e)
+            log.error("step %d: %s: %s", step, type(e).__name__, e, extra=FILE_ONLY)
             self._raise_mapped(e, step)
         self._record(step, getattr(self.provider, "last_response", None) or {
             "stop": resp.stop, "text": resp.message.text(),

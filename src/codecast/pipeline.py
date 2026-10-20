@@ -210,7 +210,7 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
         log.info("run %s ok: %.1fs video at %s", run_id, rep.video.duration_s, rep.video.path)
         return final
     except BaseException as e:  # noqa: BLE001 - every failure becomes a typed report
-        log.error("run %s failed at stage %s", run_id, current, exc_info=e)
+        log.error("run %s failed at stage %s", run_id, current, exc_info=e, extra=runlog.FILE_ONLY)
         if isinstance(e, KeyboardInterrupt):
             rb.fail(CodecastError("interrupted by user", stage=current), stage=current)
         else:

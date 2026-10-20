@@ -71,3 +71,16 @@ def test_report_keeps_traceback_for_codecast_errors():
         rb.fail(e, stage="agent")
     tb = rb.finish().failure.traceback
     assert tb and "root cause" in tb and "wrapped" in tb
+
+
+def test_image_data_is_not_copied_into_dumps(tmp_path):
+    big = "QUFB" * 5000
+    body = {"messages": [
+        {"content": [{"type": "image_url", "image_url": {"url": f"data:image/png;base64,{big}"}}]},
+        {"content": [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": big}}]},
+        {"content": "short text stays"}]}
+    p = LLMCapture(tmp_path / "llm").request(1, body)
+    text = p.read_text(encoding="utf-8")
+    assert big not in text and "short text stays" in text
+    assert text.count("20000 chars of base64 omitted") == 2
+    assert body["messages"][0]["content"][0]["image_url"]["url"].endswith(big)   # caller's body untouched

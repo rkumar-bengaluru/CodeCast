@@ -119,3 +119,18 @@ def test_compute_video_length_rejects_from_stage():
 def test_run_without_repo_still_rejected(capsys):
     assert cli.main(["run"]) == 7
     assert "--repo" in capsys.readouterr().err
+
+
+def test_real_failure_prints_no_traceback(monkeypatch, tmp_path, capsys):
+    from codecast import preflight
+    monkeypatch.setattr(preflight, "ffmpeg_problems", lambda: [])
+    monkeypatch.setattr(preflight, "_chromium_problem", lambda: None)
+    voice = tmp_path / "me.onnx"
+    voice.write_bytes(b"x")                                    # no me.onnx.json next to it
+    ws = tmp_path / "ws"
+    code = cli.main(["run", "--repo", str(tmp_path), "--out", str(tmp_path / "out"), "--workspace", str(ws),
+                     "--run", "r1", "--voice-model", str(voice)])
+    err = capsys.readouterr().err
+    assert code == 7 and "Traceback" not in err
+    assert err.startswith("codecast FAILED (exit 7) at stage preflight")
+    assert "Traceback" in (ws / "r1" / "run.log").read_text(encoding="utf-8")

@@ -67,3 +67,17 @@ def test_env_file_comments_quotes_and_export(tmp_path, monkeypatch):
     load_env_file(tmp_path / ".env")
     assert (os.environ["CODECAST_A"], os.environ["CODECAST_B"], os.environ["CODECAST_C"]) == ("1", "two words", "3")
     assert os.environ["CODECAST_D"] == ""
+
+
+def test_quoted_value_with_trailing_comment(tmp_path, monkeypatch):
+    monkeypatch.delenv("CODECAST_VOICE_MODEL", raising=False)
+    p = r"C:\2026\rkumar\voices\x=44.onnx"
+    (tmp_path / ".env").write_text(f'CODECAST_VOICE_MODEL="{p}"   # my voice\n', encoding="utf-8")
+    load_env_file(tmp_path / ".env")
+    assert os.environ["CODECAST_VOICE_MODEL"] == p
+
+
+def test_unreadable_env_file_is_a_config_error(tmp_path):
+    (tmp_path / ".env").write_text("CODECAST_MAX_WORDS=300\n", encoding="utf-16")
+    with pytest.raises(ConfigError, match=r"\.env.*UTF-8"):
+        load_env_file(tmp_path / ".env")
