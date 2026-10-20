@@ -15,6 +15,8 @@
 4. Better error messages.
 5. Logs, plus saved LLM prompts, so failures can be reviewed.
 6. (From the analysis) an empty model reply must not crash the run with `content: null`.
+7. (User review of Task 1) two empty model replies in a row stop the run with `CodecastError("model returned empty replies")` instead of nudging again.
+8. `codecast run --run <id> --compute-video-length` reports the video length of an existing run's script for zero LLM tokens; without the option, `run` generates the video as today.
 
 ## Global Constraints
 
@@ -53,7 +55,8 @@
 | `src/codecast/agent/capture.py` | create | write `llm/step-NNN.request.json` / `.response.json` / `system_prompt.md` |
 | `src/codecast/runlog.py` | create | attach/detach the per-run `run.log` handler |
 | `src/codecast/llm/errors.py`, `openai.py`, `anthropic.py` | modify | structured error fields; expose `last_request` |
-| `src/codecast/cli.py` | modify | load `.env`; `--voice-model`, `--verbose`; better failure print |
+| `src/codecast/cli.py` | modify | load `.env`; `--voice-model`, `--verbose`, `--compute-video-length`; better failure print |
+| `src/codecast/estimate.py` | create | measure an existing run's storyboard with the chosen voice, no LLM |
 | `.env.example`, `.gitignore`, `README.md`, `pyproject.toml` | modify | document and wire it up |
 
 ---
@@ -66,7 +69,8 @@
 - Test: `tests/unit/test_agent_loop.py`, `tests/unit/test_llm_openai.py`
 
 **Interfaces:**
-- Produces: none new. Behavior: an assistant message with no parts is never added to history; the nudge still is.
+- Produces: `MAX_EMPTY_REPLIES = 2` in `loop.py`. Behavior: an assistant message with no parts is never added to history; the nudge still is. Two empty replies in a row inside one `_loop` call raise `CodecastError("model returned empty replies", stage="agent")` (exit 1); a reply with parts resets the count. Text-only replies keep today's `MAX_NUDGES` rule.
+- Note: today's loop is already bounded (a third tool-less reply raises `BudgetExceeded`), so this guard gives a clearer, earlier stop rather than fixing an infinite loop.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -80,6 +84,13 @@ def test_empty_reply_is_not_added_to_history(repo):
     assert all(m.parts for m in second if m.role == "assistant")
     assert second[-1].role == "user" and "did not call a tool" in second[-1].text()
 
+def test_two_empty_replies_stop_the_run(repo):
+    empty = ChatResponse(Message("assistant", []), "end_turn", Usage())
+    agent, provider, _ = make(repo, [empty, empty, empty, empty, empty])
+    with pytest.raises(CodecastError, match="model returned empty replies"):
+        agent.run(msgs(repo))
+    assert len(provider.requests) == 2
+
 # tests/unit/test_llm_openai.py
 def test_assistant_without_text_or_calls_sends_empty_string():
     req = ChatRequest(messages=[Message("user", [TextPart("hi")]), Message("assistant", [])], tools=[])
@@ -90,12 +101,12 @@ def test_assistant_without_text_or_calls_sends_empty_string():
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `pytest tests/unit/test_agent_loop.py::test_empty_reply_is_not_added_to_history tests/unit/test_llm_openai.py::test_assistant_without_text_or_calls_sends_empty_string -v`
-Expected: both FAIL (empty assistant message present; `content` is `None`).
+Run: `pytest tests/unit/test_agent_loop.py::test_empty_reply_is_not_added_to_history tests/unit/test_agent_loop.py::test_two_empty_replies_stop_the_run tests/unit/test_llm_openai.py::test_assistant_without_text_or_calls_sends_empty_string -v`
+Expected: all three FAIL (empty assistant message present; three requests sent before `BudgetExceeded`; `content` is `None`).
 
 - [ ] **Step 3: Implement**
 
-In `loop.py`, append `resp.message` only when `resp.message.parts` is non-empty (still log it to the transcript). In `openai.py:75`, use `m.text() or (None if calls else "")`, which needs `calls` computed before the dict.
+In `loop.py`, append `resp.message` only when `resp.message.parts` is non-empty (still log it to the transcript), and count consecutive empty replies against `MAX_EMPTY_REPLIES` before the nudge is appended. In `openai.py:75`, use `m.text() or (None if calls else "")`, which needs `calls` computed before the dict.
 
 - [ ] **Step 4: Run the full unit suite**
 
@@ -106,7 +117,7 @@ Expected: PASS.
 
 ```bash
 git add src/codecast/agent/loop.py src/codecast/llm/openai.py tests/unit/test_agent_loop.py tests/unit/test_llm_openai.py
-git commit -m "fix: drop empty assistant turns instead of sending content=null"
+git commit -m "fix: drop empty assistant turns and stop after two in a row"
 ```
 
 ---
@@ -439,6 +450,68 @@ def test_failure_output_lists_paths(capsys, ...):
 - [ ] **Step 3: Implement** the Interfaces. The workspace path reaches the agent through a new `DirectorAgent(..., log_path: Path | None = None)` argument.
 - [ ] **Step 4: Run** `pytest -q` → PASS.
 - [ ] **Step 5: Update `README.md`** (§4 Engineering notes and §5 Run): the `.env` variables, `--voice-model`, `--verbose`, `run.log`, `llm/`. Then commit — `git commit -m "feat: readable LLM failure messages with pointers to log and request"`
+
+---
+
+### Task 8: `--compute-video-length` measures an existing run for zero tokens
+
+**Files:**
+- Create: `src/codecast/estimate.py`
+- Modify: `src/codecast/cli.py` (`run` parser and `main`)
+- Test: `tests/unit/test_estimate.py` (new), `tests/unit/test_cli.py`
+
+**Interfaces:**
+- Consumes: `Config.limits` (Task 2), `select_engine` honouring `VoiceConfig.model_path` and `engine.voice_id` (Task 5), `synthesize_storyboard` (existing, `voice/timeline.py`).
+- Produces:
+  - CLI: `codecast run --run <id> --compute-video-length [--voice-model PATH] [--workspace DIR] [--config FILE]`. `--repo` becomes optional at parse time; `main` raises `ConfigError` (exit 7) when `--repo` is missing without `--compute-video-length`, when `--compute-video-length` is given without `--run`, or when it is combined with `--from-stage`.
+  - `estimate.LengthEstimate(BaseModel)`: `run_id: str`, `engine: str`, `voice: str`, `per_scene_seconds: list[float]`, `total_s: float`, `spoken_words: int`, `limits: tuple[float, float]`, `within_limits: bool`.
+  - `estimate.estimate_length(ws: Path, cfg: Config, *, engine: TTSEngine | None = None) -> LengthEstimate`: reads `ws / "storyboard.json"`, synthesizes with the selected voice into `ws / "audio" / "estimate"` (the per-voice cache from Task 5 makes a repeat call instant), writes `ws / "length_estimate.json"`, and returns the estimate. It never creates an LLM provider and never runs the API-key preflight check. Its total is `Timeline.total`, the same number the final ffprobe check is compared against, so it is the real length rather than a words-per-second guess.
+  - Missing storyboard: `ConfigError("no storyboard.json in <ws>; --compute-video-length measures the script of an existing run")`.
+  - CLI output on stdout, exit 0 whether or not the length is inside the limits (my call: it is a measurement, not a check):
+    ```
+    video length for run <id> (piper voice rupak-best-mos-epoch=44):
+      scene 1  title     8.1 s
+      scene 2  bullets   8.7 s
+      ...
+      total 85.0 s, 189 spoken words: within the 50–300 s limit
+    saved: workspace/<id>/length_estimate.json
+    ```
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# tests/unit/test_estimate.py
+def test_estimate_uses_storyboard_and_never_the_llm(tmp_path, monkeypatch):
+    ws = tmp_path / "run1"; ws.mkdir()
+    (ws / "storyboard.json").write_text(<accepted storyboard from tests.unit.storyboards>.model_dump_json(), encoding="utf-8")
+    monkeypatch.setattr("codecast.llm.registry.create_provider", lambda *a, **k: pytest.fail("LLM called"))
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False); monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    est = estimate_length(ws, load_config(env={}), engine=SilenceEngine(seconds_per_word=0.4))
+    assert est.total_s > 0 and len(est.per_scene_seconds) == <number of scenes>
+    assert est.limits == (50.0, 300.0) and est.within_limits
+    assert (ws / "length_estimate.json").is_file()
+
+def test_estimate_without_storyboard_explains(tmp_path):
+    with pytest.raises(ConfigError, match="measures the script of an existing run"):
+        estimate_length(tmp_path, load_config(env={}), engine=SilenceEngine())
+
+# tests/unit/test_cli.py
+def test_compute_video_length_needs_no_repo(tmp_path, capsys, monkeypatch):
+    # workspace/run1/storyboard.json present; patch select_engine to return SilenceEngine()
+    assert main(["run", "--run", "run1", "--compute-video-length", "--workspace", str(tmp_path)]) == 0
+    assert "total" in capsys.readouterr().out
+
+def test_compute_video_length_requires_run():
+    assert main(["run", "--compute-video-length"]) == 7
+
+def test_run_without_repo_still_rejected():
+    assert main(["run"]) == 7
+```
+
+- [ ] **Step 2: Run** `pytest tests/unit/test_estimate.py tests/unit/test_cli.py -v` → the new tests FAIL.
+- [ ] **Step 3: Implement** the Interfaces.
+- [ ] **Step 4: Run** `pytest -q` → PASS. Manual check (real voice and ffmpeg, not in the suite): `codecast run --run 20261020T114621Z-9ce380 --compute-video-length --voice-model "voices/rupak-best-mos-epoch=44.onnx"` prints a per-scene table and a total.
+- [ ] **Step 5: Add a line to `README.md` §5, then commit** — `git commit -m "feat: --compute-video-length measures an existing run's script without the LLM"`
 
 ---
 
