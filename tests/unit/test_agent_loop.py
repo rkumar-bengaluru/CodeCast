@@ -4,6 +4,7 @@ from codecast.agent.loop import DirectorAgent, default_max_steps, initial_messag
 from codecast.agent.submit import Submitter
 from codecast.agent.tools import ToolBox
 from codecast.agent.transcript import Transcript, load_responses
+from codecast.config import LimitsConfig
 from codecast.errors import BudgetExceeded, CodecastError, ConfigError, ValidationFailed
 from codecast.grounding.validator import ValidationContext
 from codecast.llm.errors import AuthError, ContextLengthError
@@ -40,7 +41,7 @@ def test_default_max_steps():
 
 def test_prompt_mentions_catalog_and_rules():
     p = load_director_prompt()
-    for word in ("submit_storyboard", "metrics_table", "ken_burns", "110", "200", "50–80", "letters only"):
+    for word in ("submit_storyboard", "metrics_table", "ken_burns", "110", "200", "50–300", "letters only"):
         assert word in p
 
 
@@ -200,3 +201,14 @@ def test_two_empty_replies_stop_the_run(tiny_repo):
     with pytest.raises(CodecastError, match="model returned empty replies"):
         agent.run(msgs(tiny_repo))
     assert len(provider.requests) == 2
+
+
+def test_prompt_defaults_render_default_numbers():
+    p = load_director_prompt()
+    assert "50–300 second" in p and "**110–200**" in p and "**140–170**" in p and "$" not in p
+
+
+def test_prompt_follows_limits():
+    p = load_director_prompt(LimitsConfig(duration_max_s=600, max_words=1200, target_words=1000))
+    assert "50–600 second" in p and "**110–1200**" in p and "**985–1015**" in p
+    assert "outside 50–600 s" in p

@@ -6,10 +6,12 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 from importlib import resources
+from string import Template
 from typing import Callable
 
 from codecast.agent.tools import ToolBox
 from codecast.agent.transcript import Transcript
+from codecast.config import LimitsConfig
 from codecast.errors import BudgetExceeded, CodecastError, ConfigError
 from codecast.llm.base import LLMProvider, complete_with_retries
 from codecast.llm.errors import AuthError, ContextLengthError, ProviderError, RetryableError
@@ -26,8 +28,18 @@ def default_max_steps(n_files: int) -> int:
     return 30 + min(30, n_files // 50)
 
 
-def load_director_prompt() -> str:
-    return resources.files("codecast.agent").joinpath("prompts/director.md").read_text(encoding="utf-8")
+AIM_SPREAD_WORDS = 15  # the prompt's "aim for" band is target ± this
+
+
+def load_director_prompt(limits: LimitsConfig | None = None) -> str:
+    # string.Template, not str.format or Jinja: the prompt is full of literal JSON braces and has no "$".
+    limits = limits or LimitsConfig()
+    text = resources.files("codecast.agent").joinpath("prompts/director.md").read_text(encoding="utf-8")
+    return Template(text).substitute(
+        duration_min=f"{limits.duration_min_s:g}", duration_max=f"{limits.duration_max_s:g}",
+        min_words=limits.min_words, max_words=limits.max_words,
+        aim_lo=max(limits.min_words, limits.target_words - AIM_SPREAD_WORDS),
+        aim_hi=min(limits.max_words, limits.target_words + AIM_SPREAD_WORDS))
 
 
 def initial_messages(repomap: RepoMap, system_prompt: str) -> list[Message]:

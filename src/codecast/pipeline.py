@@ -130,7 +130,7 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
                                           temperature=cfg.llm.temperature, max_tokens=cfg.llm.max_tokens,
                                           timeout_s=cfg.llm.timeout_s, transcript=Transcript(ws / "transcript.jsonl"))
                     try:
-                        sb = agent.run(initial_messages(repomap, load_director_prompt()))
+                        sb = agent.run(initial_messages(repomap, load_director_prompt(cfg.limits)))
                     finally:
                         _agent_stats(rep, agent, submitter, cfg)
                     _write_json(ws / "storyboard.json", sb.model_dump_json(indent=1))
