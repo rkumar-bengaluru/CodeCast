@@ -142,11 +142,15 @@ class OpenAIProvider:
         self.base_url = base_url
         self.caps = replace(OPENAI_CAPS, **(caps_override or {}))
         self._client = client or sdk.OpenAI(api_key=api_key, base_url=base_url, max_retries=0)
+        self.last_request: dict | None = None   # exact body of the latest call, for workspace/<run>/llm/
+        self.last_response: dict | None = None
 
     def complete(self, req: ChatRequest) -> ChatResponse:
         body = build_request(req, self.model, self.caps, base_url=self.base_url)
+        self.last_request, self.last_response = body, None
         try:
             completion = self._client.chat.completions.create(**body, timeout=req.timeout_s)
         except Exception as e:  # noqa: BLE001 - every SDK error is normalized
             raise map_error(e) from e
-        return parse_response(completion.model_dump())
+        self.last_response = completion.model_dump()
+        return parse_response(self.last_response)

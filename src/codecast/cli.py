@@ -26,6 +26,7 @@ def _parser() -> argparse.ArgumentParser:
     r.add_argument("--from-stage", choices=["voice", "render", "compose"])
     r.add_argument("--run", dest="run_id")
     r.add_argument("--workspace", type=Path, default=Path("workspace"))
+    r.add_argument("--verbose", action="store_true", help="print progress; run.log in the workspace always has it")
     r.add_argument("--voice-model", type=Path, help="custom piper voice .onnx (its .onnx.json must sit next to it); "
                    "default: CODECAST_VOICE_MODEL, else the configured piper voice")
     d = sub.add_parser("doctor", help="check the local setup")
@@ -61,7 +62,8 @@ def main(argv: list[str] | None = None) -> int:
             from codecast.eval import evaluate
             return evaluate(args.out_dir, reclone=not args.no_reclone, source=args.source)
         opts = RunOptions(repo=args.repo, out_dir=args.out, workspace=args.workspace, max_steps=args.max_steps,
-                          allow_network_tts=args.allow_network_tts, from_stage=args.from_stage, run_id=args.run_id)
+                          allow_network_tts=args.allow_network_tts, from_stage=args.from_stage, run_id=args.run_id,
+                          verbose=args.verbose)
         report = pipeline_run(opts, cfg)
         status = "OK" if report.exit_code == 0 else f"FAILED (exit {report.exit_code})"
         detail = (f"{report.video.duration_s:.1f}s → {report.video.path}" if report.video

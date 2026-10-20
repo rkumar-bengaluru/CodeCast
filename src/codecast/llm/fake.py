@@ -21,9 +21,12 @@ class FakeProvider:
         self.caps = caps
         self.model = model
         self.requests: list[ChatRequest] = []
+        self.last_request: dict | None = None
 
     def complete(self, req: ChatRequest) -> ChatResponse:
         self.requests.append(req)
+        self.last_request = {"provider": "fake", "tool_choice": req.tool_choice,
+                             "messages": [{"role": m.role, "text": m.text()} for m in req.messages]}
         if not self._script:
             raise ProviderError("FakeProvider script exhausted")
         item = self._script.pop(0)

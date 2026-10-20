@@ -178,3 +178,17 @@ def test_long_video_passes_when_max_duration_raised(git_repo, tmp_path):
     assert rep.exit_code == 0, rep.failure
     assert rep.validation.duration_rounds == 0
     assert rep.limits.duration_max_s == 600
+
+
+def test_failed_run_leaves_log_and_requests(git_repo, tmp_path):
+    from codecast.llm.errors import ProviderError
+    provider = FakeProvider([tool_call("list_dir", {"path": "."}, "a"), ProviderError("boom")])
+    rep = run(opts(git_repo, tmp_path), load_config(), provider=provider, engine=SilenceEngine(0.4), preflight=False)
+    assert rep.exit_code == 1 and rep.failure.stage == "agent"
+    ws = tmp_path / "ws" / rep.run_id
+    log = (ws / "run.log").read_text(encoding="utf-8")
+    assert "stage agent started" in log and "Traceback" in log and "boom" in log
+    assert sorted(p.name for p in (ws / "llm").glob("step-*.request.json")) == [
+        "step-001.request.json", "step-002.request.json"]
+    assert "boom" in (ws / "llm" / "step-002.response.json").read_text(encoding="utf-8")
+    assert rep.failure.traceback is not None

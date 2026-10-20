@@ -116,13 +116,17 @@ class AnthropicProvider:
         self.model = model
         self.caps = replace(ANTHROPIC_CAPS, **(caps_override or {}))
         self._client = client or sdk.Anthropic(api_key=api_key, base_url=base_url, max_retries=0)
+        self.last_request: dict | None = None   # exact body of the latest call, for workspace/<run>/llm/
+        self.last_response: dict | None = None
 
     def complete(self, req: ChatRequest) -> ChatResponse:
         body = build_request(req, self.model, self.caps)
+        self.last_request, self.last_response = dict(body), None
         try:
             # This SDK's create() has no `temperature` kwarg; send it through extra_body.
             extra = {"temperature": body.pop("temperature")} if "temperature" in body else None
             msg = self._client.messages.create(**body, extra_body=extra, timeout=req.timeout_s)
         except Exception as e:  # noqa: BLE001 - every SDK error is normalized
             raise map_error(e) from e
-        return parse_response(msg.model_dump())
+        self.last_response = msg.model_dump()
+        return parse_response(self.last_response)
