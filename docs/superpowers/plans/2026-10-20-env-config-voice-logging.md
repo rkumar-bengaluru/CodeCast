@@ -18,7 +18,7 @@
 
 ## Global Constraints
 
-- Defaults must stay exactly as today: duration 50.0–80.0 s, words 110–200, target 155. A run with no `.env` behaves identically to `main`.
+- Defaults: duration 50.0–300.0 s (the max rises from today's 80 s to 5 minutes, per the user on 2026-10-20), words 110–200, target 155. Apart from the higher duration ceiling, a run with no `.env` behaves the same as `main`. Existing tests and README text that pin 80 s are updated to 300 s.
 - Precedence everywhere: real environment variable > `.env` file > YAML config / packaged default. `.env` never overwrites a variable already set in the shell.
 - Env variable names (exact): `CODECAST_DURATION_MIN_S`, `CODECAST_DURATION_MAX_S`, `CODECAST_MIN_WORDS`, `CODECAST_MAX_WORDS`, `CODECAST_TARGET_WORDS`, `CODECAST_VOICE_MODEL`.
 - An invalid limit (non-numeric, min > max, target outside [min, max], negative) fails at startup with `ConfigError` (exit 7) naming the variable and its value.
@@ -123,7 +123,7 @@ git commit -m "fix: drop empty assistant turns instead of sending content=null"
   - `settings.load_env_file(path: Path = Path(".env")) -> bool` — loads with `override=False`; returns whether a file was found.
   - `settings.limit_overrides(env: Mapping[str, str] = os.environ) -> dict[str, float | int]` — keys `duration_min_s`, `duration_max_s`, `min_words`, `max_words`, `target_words`, only for variables that are set; raises `ConfigError` on a non-numeric value.
   - `settings.voice_model_from_env(env=os.environ) -> str | None`
-  - `config.LimitsConfig(BaseModel)`: `duration_min_s: float = 50.0`, `duration_max_s: float = 80.0`, `min_words: int = 110`, `max_words: int = 200`, `target_words: int = 155`; property `duration_range -> tuple[float, float]`; a model validator enforcing 0 ≤ min ≤ max and min_words ≤ target_words ≤ max_words.
+  - `config.LimitsConfig(BaseModel)`: `duration_min_s: float = 50.0`, `duration_max_s: float = 300.0`, `min_words: int = 110`, `max_words: int = 200`, `target_words: int = 155`; property `duration_range -> tuple[float, float]`; a model validator enforcing 0 ≤ min ≤ max and min_words ≤ target_words ≤ max_words.
   - `Config.limits: LimitsConfig`; `VoiceConfig.model_path: str | None = None`.
   - `load_config(path=None, *, env: Mapping[str, str] | None = None)`: after the YAML merge, applies `limit_overrides(env)` over `data["limits"]` and `voice_model_from_env(env)` into `data["voice"]["model_path"]`. `env=None` means `os.environ`.
 
@@ -133,7 +133,7 @@ git commit -m "fix: drop empty assistant turns instead of sending content=null"
 # tests/unit/test_settings.py
 def test_no_env_keeps_todays_limits():
     cfg = load_config(env={})
-    assert cfg.limits.duration_range == (50.0, 80.0)
+    assert cfg.limits.duration_range == (50.0, 300.0)
     assert (cfg.limits.min_words, cfg.limits.max_words, cfg.limits.target_words) == (110, 200, 155)
 
 def test_env_overrides_duration_only():
@@ -143,7 +143,7 @@ def test_env_overrides_duration_only():
 
 @pytest.mark.parametrize("env, needle", [
     ({"CODECAST_DURATION_MAX_S": "ten"}, "CODECAST_DURATION_MAX_S"),
-    ({"CODECAST_DURATION_MIN_S": "90"}, "duration"),          # 90 > default max 80
+    ({"CODECAST_DURATION_MIN_S": "400"}, "duration"),         # 400 > default max 300
     ({"CODECAST_TARGET_WORDS": "500"}, "target_words"),
 ])
 def test_bad_limits_fail_with_the_name(env, needle):
@@ -218,9 +218,9 @@ def test_feedback_uses_given_range():
 
 # test_eval.py   (Review Focus 2)
 def test_eval_uses_limits_recorded_in_report(tmp_path):
-    # output dir with a 300 s video whose run_report.json records limits.duration_max_s = 600
+    # output dir with a 400 s video whose run_report.json records limits.duration_max_s = 600
     assert <evaluate(...) duration check> passes
-    # same output with no "limits" in the report (older run) falls back to 50-80 and fails
+    # same output with no "limits" in the report (older run) falls back to the 50-300 default and fails
 
 # test_pipeline_offline.py   (Review Focus 2)
 def test_long_video_passes_when_max_duration_raised(...):
@@ -260,7 +260,7 @@ def test_long_video_passes_when_max_duration_raised(...):
 ```python
 def test_prompt_defaults_render_todays_numbers():
     p = load_director_prompt()
-    assert "50–80 second" in p and "**110–200**" in p and "**140–170**" in p and "$" not in p
+    assert "50–300 second" in p and "**110–200**" in p and "**140–170**" in p and "$" not in p
 
 def test_prompt_follows_limits():
     p = load_director_prompt(LimitsConfig(duration_max_s=600, max_words=1200, target_words=1000))
@@ -444,6 +444,6 @@ def test_failure_output_lists_paths(capsys, ...):
 
 ## Not in this plan (deliberately)
 
-- Making videos *longer* is a matter of raising `CODECAST_MAX_WORDS` / `CODECAST_TARGET_WORDS` together with the duration; the plan makes that possible but does not change the defaults.
+- With the 300 s default but the 200-word cap unchanged, videos stay around 1 minute; the higher ceiling only stops duration failures. Making videos *longer* is a matter of raising `CODECAST_MAX_WORDS` / `CODECAST_TARGET_WORDS` together with the duration; the plan makes that possible but does not change the defaults.
 - Better duration revisions by the model (the cause of the `NARRATION_UNCHANGED` loop) are out of scope; with the max duration raised they stop mattering for this user.
 - Other `voice` YAML keys (`gap_s`, `tail_s`, …) stay YAML-only.
