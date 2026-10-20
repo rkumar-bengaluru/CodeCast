@@ -26,6 +26,7 @@ NUDGE = ("You did not call a tool. Finish now by calling submit_storyboard with 
          "storyboard.")
 MAX_NUDGES = 2
 MAX_EMPTY_REPLIES = 2
+PROVIDER_NAMES = {"openai": "OpenAI", "anthropic": "Anthropic"}
 
 
 def default_max_steps(n_files: int) -> int:
@@ -143,26 +144,30 @@ class DirectorAgent:
         except LLMError as e:
             self._record(step, {"error": {"type": type(e).__name__, "message": str(e)}})
             log.error("step %d: %s: %s", step, type(e).__name__, e)
-            self._raise_mapped(e)
+            self._raise_mapped(e, step)
         self._record(step, getattr(self.provider, "last_response", None) or {
             "stop": resp.stop, "text": resp.message.text(),
             "tool_calls": [{"name": c.name, "args": c.args} for c in resp.message.tool_calls()]})
         return resp
 
-    def _raise_mapped(self, e: LLMError) -> None:
-        try:
-            raise e
-        except ContextLengthError as e:
+    def _raise_mapped(self, e: LLMError, step: int) -> None:
+        where = f"agent step {step}: "
+        sent = self.capture.last_request_path if self.capture else None
+        tail = f"\n  request sent: {sent}" if sent else ""
+        if isinstance(e, ContextLengthError):
             self.stats.context = {"window": self.provider.caps.context_window,
                                   "input_tokens_at_failure": self._last_usage.total_input,
                                   "last_turn_tool_outputs": self._last_turn_outputs()}
-            raise BudgetExceeded(f"context window exhausted: {e}", details=self.stats.context) from e
-        except AuthError as e:
-            raise ConfigError(f"LLM authentication failed: {e}") from e
-        except RetryableError as e:
-            raise CodecastError(f"LLM provider unavailable after retries: {e}", stage="agent") from e
-        except ProviderError as e:
-            raise CodecastError(f"LLM provider error: {e}", stage="agent") from e
+            raise BudgetExceeded(f"{where}context window exhausted: {e}{tail}", details=self.stats.context) from e
+        if isinstance(e, AuthError):
+            raise ConfigError(f"{where}LLM authentication failed: {e}{tail}") from e
+        if isinstance(e, RetryableError):
+            raise CodecastError(f"{where}LLM provider unavailable after retries: {e}{tail}", stage="agent") from e
+        if e.status is not None:
+            name = PROVIDER_NAMES.get(e.provider or "", e.provider or self.provider.name)
+            detail = " ".join(x for x in (f"HTTP {e.status}", e.error_type) if x) + (f", {e.param}" if e.param else "")
+            raise CodecastError(f"{where}{name} rejected the request ({detail}): {e}{tail}", stage="agent") from e
+        raise CodecastError(f"{where}LLM provider error: {e}{tail}", stage="agent") from e
 
     def _loop(self, steps: int) -> Storyboard:
         nudges = empties = 0

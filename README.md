@@ -12,7 +12,7 @@ Docs are walls of text; a new engineer needs half an hour to absorb a README, a 
 | 2 Director | LLM agent with 5 read-only tools (`list_dir`, `read_file`, `grep`, `read_json`, `view_image`) explores the repo and calls `submit_storyboard` | agent decides, **code checks** |
 | 3 Voice | local TTS per sentence (piper, fallback macOS `say`) → measured, frame-aligned timeline | measured audio drives timing |
 | 4 Render | Playwright renders 8 scene templates + caption PNGs (fonts and mermaid.js vendored, no network) | captions as PNG overlays (Homebrew ffmpeg has no libass) |
-| 5 Compose | ffmpeg segments + overlays + `loudnorm` audio → ffprobe post-check (50–80 s, A/V drift < 0.1 s) | fail loudly with typed exit codes 0–7 |
+| 5 Compose | ffmpeg segments + overlays + `loudnorm` audio → ffprobe post-check (50–300 s by default, A/V drift < 0.1 s) | fail loudly with typed exit codes 0–7 |
 
 The LLM sits behind a provider-neutral adapter (Anthropic, OpenAI and OpenAI-compatible endpoints, plus a Fake provider that replays transcripts for offline tests). The agent never writes HTML or ffmpeg commands; it picks scenes from a fixed catalog: title, bullets, code, image (with highlights / Ken Burns), metrics table, mermaid diagram, terminal, outro.
 
@@ -48,12 +48,13 @@ The strict validator worked as intended: no run produced a video with an invente
 
 - **Safety:** tools are read-only and confined by `realpath` to the clone; repo text is treated as untrusted data; ffmpeg runs from argv lists with filter graphs in files (`-/filter_complex`), never a shell.
 - **Reproducibility:** every stage persists to `workspace/<run_id>/` (repo map, `transcript.jsonl` with image sidecars, storyboard, timeline, frames); `--from-stage voice|render|compose --run <id>` resumes and carries the agent's accounting forward. Outputs are staged and swapped in only after the post-check, so a failed run never replaces the committed demo.
+- **Failure review:** each run writes `workspace/<run_id>/run.log` (stages, every agent step, validation results, full traceback) and `workspace/<run_id>/llm/` (the rendered `system_prompt.md` plus the exact request and response of every LLM step as `step-NNN.request.json` / `step-NNN.response.json`). A failed run prints the step, the provider's own error, and the paths of the request it sent, the log and the run report. `--verbose` echoes the log to the terminal.
 - **Tests:** 364 offline tests (`pytest -q`, no API key): table-driven grounding rules, sandbox escapes, adapters via mocked HTTP, the agent loop via the Fake provider, real Chromium renders, real ffmpeg compose, and offline end-to-end runs of the whole pipeline. `pytest -m live` adds real-LLM runs (demo repo plus a smoke repo without metrics).
 - **Cost control:** the step budget is `30 + min(30, n_files // 50)`, prompt caching (75–90% of input tokens were cache hits), and pricing comes from the provider's official page; an unknown model reports `cost_usd: null` with a reason rather than a guess.
 
 ## 5. Limitations and how to run
 
-**Limitations.** One demo repo and 10 live runs is a small sample; about 1 in 4 runs succeeds with gpt-5.4-mini, mostly failing the 50–60 s window it had then (now widened to 50–80 s). The demo was completed by an offline resume after the compose bug fix, so its ingest, agent and voice timings were not recorded and end-to-end time is unmeasured; its agent cost was reconstructed from the transcript. On screen the metrics table shows per-run JSON values (0.741 / 0.842) while the narration quotes the README averages (0.735 / 0.843): both are grounded, but they differ. The plot highlight sits over an empty area. Terminal scenes show real commands from cited lines, never executed output. Output is 16:9 only; GitHub Action, private repos, 9:16 and multi-language narration are Phase B. Design spec: [`docs/superpowers/specs/2026-10-15-codecast-design.md`](docs/superpowers/specs/2026-10-15-codecast-design.md).
+**Limitations.** One demo repo and 10 live runs is a small sample; about 1 in 4 runs succeeds with gpt-5.4-mini, mostly failing the 50–60 s window it had then (now 50–300 s by default and configurable, see below). The demo was completed by an offline resume after the compose bug fix, so its ingest, agent and voice timings were not recorded and end-to-end time is unmeasured; its agent cost was reconstructed from the transcript. On screen the metrics table shows per-run JSON values (0.741 / 0.842) while the narration quotes the README averages (0.735 / 0.843): both are grounded, but they differ. The plot highlight sits over an empty area. Terminal scenes show real commands from cited lines, never executed output. Output is 16:9 only; GitHub Action, private repos, 9:16 and multi-language narration are Phase B. Design spec: [`docs/superpowers/specs/2026-10-15-codecast-design.md`](docs/superpowers/specs/2026-10-15-codecast-design.md).
 
 **Run** (from `run.yaml`; macOS, Python 3.12+, `brew install ffmpeg`, `OPENAI_API_KEY`; or omit `--config` to use the default Anthropic model with `ANTHROPIC_API_KEY`):
 
@@ -65,3 +66,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install -e '.[dev]'
 .venv/bin/codecast eval output/video-classifier/
 .venv/bin/python -m pytest -q
 ```
+
+**Configure** without editing code: copy [`.env.example`](.env.example) to `.env` (git-ignored; variables already set in the shell win). `CODECAST_DURATION_MIN_S` / `CODECAST_DURATION_MAX_S` set the accepted video length (default 50–300 s), `CODECAST_MIN_WORDS` / `CODECAST_MAX_WORDS` / `CODECAST_TARGET_WORDS` the narration length (default 110 / 200 / 155 words; raise them with the duration for longer videos). The director prompt, validator, duration loop, post-check and `codecast eval` all read the same values, and the run report records them.
+
+**Your own voice:** `codecast run ... --voice-model voices/my-voice.onnx` (or `CODECAST_VOICE_MODEL`) uses a custom piper voice; its `.onnx.json` must sit next to it. A missing file is an error, never a silent fallback. `codecast doctor --voice-model ...` checks it.

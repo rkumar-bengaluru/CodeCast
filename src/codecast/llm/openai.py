@@ -9,7 +9,7 @@ from typing import Any
 
 import openai as sdk
 
-from codecast.llm.errors import AuthError, ContextLengthError, LLMError, ProviderError, RetryableError
+from codecast.llm.errors import AuthError, ContextLengthError, LLMError, ProviderError, RetryableError, sdk_error_fields
 from codecast.llm.types import (
     ChatRequest, ChatResponse, ImagePart, Message, ProviderCaps, TextPart, ToolCallPart, ToolResultPart, Usage,
 )
@@ -120,17 +120,19 @@ def parse_response(data: dict) -> ChatResponse:
 
 
 def map_error(e: Exception) -> LLMError:
+    f = sdk_error_fields(e, "openai")
+    msg = f.pop("message")
     if isinstance(e, (sdk.AuthenticationError, sdk.PermissionDeniedError)):
-        return AuthError(str(e))
+        return AuthError(msg, **f)
     if isinstance(e, (sdk.RateLimitError, sdk.APIConnectionError, sdk.InternalServerError)):
-        return RetryableError(str(e))
+        return RetryableError(msg, **f)
     if isinstance(e, sdk.APIStatusError):
         if e.status_code >= 500:
-            return RetryableError(str(e))
+            return RetryableError(msg, **f)
         if getattr(e, "code", None) == "context_length_exceeded" or "maximum context length" in str(e):
-            return ContextLengthError(str(e))
-        return ProviderError(str(e))
-    return ProviderError(f"{type(e).__name__}: {e}")
+            return ContextLengthError(msg, **f)
+        return ProviderError(msg, **f)
+    return ProviderError(f"{type(e).__name__}: {e}", provider="openai")
 
 
 class OpenAIProvider:

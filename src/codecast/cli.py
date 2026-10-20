@@ -65,10 +65,14 @@ def main(argv: list[str] | None = None) -> int:
                           allow_network_tts=args.allow_network_tts, from_stage=args.from_stage, run_id=args.run_id,
                           verbose=args.verbose)
         report = pipeline_run(opts, cfg)
-        status = "OK" if report.exit_code == 0 else f"FAILED (exit {report.exit_code})"
-        detail = (f"{report.video.duration_s:.1f}s → {report.video.path}" if report.video
-                  else f"{report.failure.stage}: {report.failure.message}")
-        print(f"codecast {status}: {detail}\nrun report: {args.workspace / report.run_id / 'run_report.json'}")
+        ws = args.workspace / report.run_id
+        if report.exit_code == 0:
+            print(f"codecast OK: {report.video.duration_s:.1f}s → {report.video.path}\n"
+                  f"run report: {ws / 'run_report.json'}")
+        else:
+            print(f"codecast FAILED (exit {report.exit_code}) at stage {report.failure.stage}\n"
+                  f"  {report.failure.message}\n  full log: {ws / 'run.log'}\n  run report: {ws / 'run_report.json'}",
+                  file=sys.stderr)
         return report.exit_code
     except CodecastError as e:
         print(f"codecast: {e.message}", file=sys.stderr)

@@ -70,3 +70,24 @@ def test_env_voice_used_without_flag(monkeypatch, tmp_path):
     monkeypatch.setenv("CODECAST_VOICE_MODEL", "from-env.onnx")
     cli.main(["run", "--repo", "x", "--out", str(tmp_path)])
     assert seen["cfg"].voice.model_path == "from-env.onnx"
+
+
+
+def test_failure_output_lists_paths(monkeypatch, tmp_path, capsys):
+    from codecast.errors import CodecastError
+    from codecast.report import ReportBuilder
+
+    def fake_run(opts, cfg, **kw):
+        rb = ReportBuilder("r1", opts.repo, cfg)
+        rb.fail(CodecastError("agent step 20: OpenAI rejected the request (HTTP 400 x): y\n  request sent: z.json",
+                              stage="agent"), stage="agent")
+        return rb.finish()
+    monkeypatch.setattr(cli, "pipeline_run", fake_run)
+    ws = tmp_path / "ws"
+    assert cli.main(["run", "--repo", "x", "--out", str(tmp_path), "--workspace", str(ws)]) == 1
+    err = capsys.readouterr().err.splitlines()
+    assert err[0] == "codecast FAILED (exit 1) at stage agent"
+    assert err[1] == "  agent step 20: OpenAI rejected the request (HTTP 400 x): y"
+    assert err[2] == "  request sent: z.json"
+    assert err[3] == f"  full log: {ws / 'r1' / 'run.log'}"
+    assert err[4] == f"  run report: {ws / 'r1' / 'run_report.json'}"

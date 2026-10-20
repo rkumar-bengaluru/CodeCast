@@ -212,3 +212,32 @@ def test_prompt_follows_limits():
     p = load_director_prompt(LimitsConfig(duration_max_s=600, max_words=1200, target_words=1000))
     assert "50–600 second" in p and "**110–1200**" in p and "**985–1015**" in p
     assert "outside 50–600 s" in p
+
+
+
+def test_provider_error_message_names_step_and_request(tiny_repo, tmp_path):
+    from codecast.agent.capture import LLMCapture
+    from codecast.llm.errors import ProviderError
+    err = ProviderError("bad content", provider="openai", status=400, error_type="invalid_request_error",
+                        param="messages.[3].content")
+    agent, _, _ = make(tiny_repo, [err], capture=LLMCapture(tmp_path / "llm"))
+    with pytest.raises(CodecastError) as ei:
+        agent.run(msgs(tiny_repo))
+    assert ei.value.message.startswith("agent step 1: OpenAI rejected the request (HTTP 400 invalid_request_error, "
+                                       "messages.[3].content): bad content")
+    assert "request sent: " in ei.value.message and "step-001.request.json" in ei.value.message
+
+
+def test_error_without_capture_has_no_request_line(tiny_repo):
+    agent, _, _ = make(tiny_repo, [AuthError("bad key", provider="openai", status=401)])
+    with pytest.raises(ConfigError) as ei:
+        agent.run(msgs(tiny_repo))
+    assert ei.value.message == "agent step 1: LLM authentication failed: bad key"
+
+
+def test_provider_error_without_http_status_keeps_plain_wording(tiny_repo):
+    from codecast.llm.errors import ProviderError
+    agent, _, _ = make(tiny_repo, [ProviderError("socket closed")])
+    with pytest.raises(CodecastError) as ei:
+        agent.run(msgs(tiny_repo))
+    assert ei.value.message == "agent step 1: LLM provider error: socket closed"
