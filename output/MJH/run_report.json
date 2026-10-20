@@ -1,0 +1,70 @@
+{
+ "run_id": "20261020T145230Z-cdb8e9",
+ "started_at": "2026-10-20T14:52:30+00:00",
+ "ended_at": "2026-10-20T14:53:54+00:00",
+ "repo_url": "https://github.com/rkumar-bengaluru/MJH",
+ "commit_sha": "e216c38042ce3ae645750d4e60130fcde8915f43",
+ "llm": {
+  "provider": "openai",
+  "model": "gpt-5.4-mini",
+  "temperature": 0.3
+ },
+ "status": "ok",
+ "exit_code": 0,
+ "failure": null,
+ "ingest": {
+  "n_files": 329,
+  "skipped_by_reason": {
+   "ignored_dir": 1
+  }
+ },
+ "budget": {
+  "max_steps": 35,
+  "steps_used": 9,
+  "tool_calls": {
+   "read_file": 21,
+   "list_dir": 1,
+   "submit_storyboard": 3
+  }
+ },
+ "usage": {
+  "input": 37232,
+  "output": 3575,
+  "cache_read_input": 220928,
+  "cache_write_input": 0
+ },
+ "cost_usd": 0.060581,
+ "cost_unknown_reason": null,
+ "context": null,
+ "validation": {
+  "storyboard_rounds": 3,
+  "duration_rounds": 0,
+  "failures_by_code": {
+   "UNGROUNDED_NUMBER": 11,
+   "CODE_TOO_LONG": 1,
+   "HIGHLIGHT_OUT_OF_RANGE": 1
+  }
+ },
+ "limits": {
+  "duration_min_s": 50.0,
+  "duration_max_s": 300.0,
+  "min_words": 110,
+  "max_words": 200,
+  "target_words": 155
+ },
+ "tts_engine": "piper",
+ "tts_voice": "rupak-best-mos-epoch=44",
+ "stage_seconds": {
+  "ingest": 6.312,
+  "agent": 28.297,
+  "voice": 7.313,
+  "render": 9.093,
+  "compose": 23.219
+ },
+ "video": {
+  "path": "output\\MJH\\explainer.mp4",
+  "duration_s": 80.0,
+  "size_bytes": 3042826,
+  "narration_s": 75.349
+ }
+}
