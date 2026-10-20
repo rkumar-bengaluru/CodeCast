@@ -6,6 +6,7 @@ from pathlib import Path
 
 class SilenceEngine:
     name = "silence"
+    voice_id = "silence"
 
     def __init__(self, seconds_per_word: float = 0.4):
         self.seconds_per_word = seconds_per_word

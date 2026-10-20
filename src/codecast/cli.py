@@ -26,8 +26,11 @@ def _parser() -> argparse.ArgumentParser:
     r.add_argument("--from-stage", choices=["voice", "render", "compose"])
     r.add_argument("--run", dest="run_id")
     r.add_argument("--workspace", type=Path, default=Path("workspace"))
+    r.add_argument("--voice-model", type=Path, help="custom piper voice .onnx (its .onnx.json must sit next to it); "
+                   "default: CODECAST_VOICE_MODEL, else the configured piper voice")
     d = sub.add_parser("doctor", help="check the local setup")
     d.add_argument("--config", type=Path)
+    d.add_argument("--voice-model", type=Path, help="check this custom piper voice")
     f = sub.add_parser("fetch-voice", help="download the piper voice")
     f.add_argument("--config", type=Path)
     e = sub.add_parser("eval", help="evaluate a generated output directory")
@@ -42,6 +45,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         load_env_file(Path(".env"))
         cfg = load_config(getattr(args, "config", None))
+        if getattr(args, "voice_model", None):
+            cfg.voice.model_path = str(args.voice_model)  # the flag beats CODECAST_VOICE_MODEL
         if args.cmd == "doctor":
             checks = run_checks(cfg, require_key=False)
             for c in checks:

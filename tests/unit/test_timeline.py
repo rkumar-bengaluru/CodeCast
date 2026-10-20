@@ -99,3 +99,13 @@ def test_feedback_uses_given_range(tmp_path):
     data = json.loads(duration_feedback(tl, sb, limits=LimitsConfig(duration_max_s=120)))
     assert data["target"] == [50.0, 120.0]
     assert "it must be 50-120s" in data["instruction"]
+
+
+
+def test_cache_is_per_voice(tmp_path):
+    sb = storyboard()
+    a, b = SilenceEngine(0.4), SilenceEngine(0.4)
+    a.voice_id, b.voice_id = "default", "rupak"
+    synthesize_storyboard(sb, a, tmp_path, gap_s=0.15, tail_s=0.5)
+    synthesize_storyboard(sb, b, tmp_path, gap_s=0.15, tail_s=0.5)
+    assert len(b.calls) == len(a.calls) > 0     # nothing reused from voice "default"

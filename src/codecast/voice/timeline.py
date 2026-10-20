@@ -115,7 +115,8 @@ def synthesize_storyboard(sb: Storyboard, engine: TTSEngine, cache_dir: Path, *,
     for i, sc in enumerate(sb.scenes):
         items = []
         for sent in sc.narration:
-            key = hashlib.sha256(f"{engine.name}\x00{sent.text}".encode()).hexdigest()[:20]
+            voice = getattr(engine, "voice_id", "")
+            key = hashlib.sha256(f"{engine.name}\x00{voice}\x00{sent.text}".encode()).hexdigest()[:20]
             wav = cache_dir / f"{key}.wav"
             if not wav.is_file():
                 tmp = cache_dir / f"{key}.tmp.wav"

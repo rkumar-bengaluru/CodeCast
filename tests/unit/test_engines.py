@@ -95,3 +95,44 @@ def test_fetch_voice_downloads_atomically(monkeypatch, tmp_path):
     path = fetch_voice(cfg(tmp_path), opener=lambda url, timeout=60: Resp(url))
     assert path.name == "en_US-lessac-medium.onnx" and path.read_bytes().endswith(b".onnx")
     assert not list(path.parent.glob("*.part"))
+
+
+def custom(tmp_path, json=True):
+    m = tmp_path / "me.onnx"
+    m.write_bytes(b"x")
+    if json:
+        (tmp_path / "me.onnx.json").write_text("{}")
+    return m
+
+
+def test_custom_model_path_wins(tmp_path):
+    m = custom(tmp_path)
+    assert engines.piper_model_path(VoiceConfig(model_path=str(m), voices_dir=str(tmp_path / "v"))) == m
+
+
+def test_custom_voice_selected_with_its_id(monkeypatch, tmp_path):
+    import piper
+    m = custom(tmp_path)
+    monkeypatch.setattr(engines, "_piper_installed", lambda: True)
+    monkeypatch.setattr(piper.PiperVoice, "load", staticmethod(lambda path: object()))
+    eng = select_engine(VoiceConfig(model_path=str(m)), allow_network=False)
+    assert (eng.name, eng.voice_id) == ("piper", "me")
+
+
+def test_missing_custom_voice_is_an_error_not_a_fallback(monkeypatch, tmp_path):
+    monkeypatch.setattr(engines, "_piper_installed", lambda: True)
+    monkeypatch.setattr(engines, "_say_available", lambda v: True)
+    with pytest.raises(ConfigError, match="custom voice not found"):
+        select_engine(VoiceConfig(model_path=str(tmp_path / "nope.onnx")), allow_network=False)
+
+
+def test_custom_voice_without_json_says_so(monkeypatch, tmp_path):
+    monkeypatch.setattr(engines, "_piper_installed", lambda: True)
+    m = custom(tmp_path, json=False)
+    with pytest.raises(ConfigError, match=r"me\.onnx\.json"):
+        select_engine(VoiceConfig(model_path=str(m)), allow_network=False)
+
+
+def test_say_and_edge_voice_ids():
+    assert SayEngine("Samantha").voice_id == "Samantha"
+    assert engines.EdgeEngine("en-US-AriaNeural").voice_id == "en-US-AriaNeural"

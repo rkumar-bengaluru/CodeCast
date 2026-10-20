@@ -30,3 +30,16 @@ def test_ffmpeg_and_tts_failures_are_fatal_with_hints(monkeypatch):
     assert checks["ffmpeg"].fatal and "brew install ffmpeg" in checks["ffmpeg"].fix
     assert checks["chromium"].fatal and "playwright install chromium" in checks["chromium"].fix
     assert checks["tts"].fatal and "fetch-voice" in checks["tts"].fix
+
+
+
+def test_missing_custom_voice_is_fatal_even_if_say_works(monkeypatch, tmp_path):
+    from codecast.voice import engines
+    monkeypatch.setattr(preflight, "ffmpeg_problems", lambda: [])
+    monkeypatch.setattr(preflight, "_chromium_problem", lambda: None)
+    monkeypatch.setattr(engines, "_piper_installed", lambda: True)
+    monkeypatch.setattr(engines, "_say_available", lambda v: True)
+    cfg = load_config(env={"CODECAST_VOICE_MODEL": str(tmp_path / "nope.onnx")})
+    tts = {c.name: c for c in preflight.run_checks(cfg, require_key=False)}["tts"]
+    assert not tts.ok and tts.fatal and "custom voice not found" in tts.message
+    assert "--voice-model" in tts.fix

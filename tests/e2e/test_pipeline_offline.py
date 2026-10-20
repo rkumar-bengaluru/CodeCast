@@ -49,7 +49,7 @@ def test_happy_path_produces_all_artifacts(git_repo, tmp_path):
     for name in ("explainer.mp4", "explainer.srt", "storyboard.json", "run_report.json"):
         assert (out / name).is_file()
     assert 50 <= rep.video.duration_s <= 80
-    assert rep.validation.storyboard_rounds == 1 and rep.tts_engine == "silence"
+    assert rep.validation.storyboard_rounds == 1 and rep.tts_engine == "silence" and rep.tts_voice == "silence"
     assert set(rep.stage_seconds) == {"ingest", "agent", "voice", "render", "compose"}
     assert json.loads((out / "storyboard.json").read_text())["repo_url"] == "https://github.com/o/tiny"
     assert not list(out.glob(".staging-*"))

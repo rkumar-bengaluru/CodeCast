@@ -97,6 +97,7 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
         if engine is None:
             engine = select_engine(cfg.voice, allow_network=opts.allow_network_tts)
         rep.tts_engine = engine.name
+        rep.tts_voice = getattr(engine, "voice_id", None)
 
         # [1] ingest
         current = "ingest"

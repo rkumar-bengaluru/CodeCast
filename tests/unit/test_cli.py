@@ -41,3 +41,32 @@ def test_dotenv_in_cwd_is_loaded(monkeypatch, tmp_path, capsys):
     monkeypatch.chdir(tmp_path)
     assert cli.main(["doctor"]) == 7
     assert "CODECAST_DURATION_MAX_S='ten'" in capsys.readouterr().err
+
+
+
+def _capture_cfg(monkeypatch):
+    from codecast.errors import IngestError
+    from codecast.report import ReportBuilder
+    seen = {}
+
+    def fake_run(opts, cfg, **kw):
+        seen["cfg"] = cfg
+        rb = ReportBuilder("r", opts.repo, cfg)
+        rb.fail(IngestError("stop here"), stage="ingest")
+        return rb.finish()
+    monkeypatch.setattr(cli, "pipeline_run", fake_run)
+    return seen
+
+
+def test_voice_model_flag_beats_env(monkeypatch, tmp_path):
+    seen = _capture_cfg(monkeypatch)
+    monkeypatch.setenv("CODECAST_VOICE_MODEL", "from-env.onnx")
+    cli.main(["run", "--repo", "x", "--out", str(tmp_path), "--voice-model", "flag.onnx"])
+    assert seen["cfg"].voice.model_path == "flag.onnx"
+
+
+def test_env_voice_used_without_flag(monkeypatch, tmp_path):
+    seen = _capture_cfg(monkeypatch)
+    monkeypatch.setenv("CODECAST_VOICE_MODEL", "from-env.onnx")
+    cli.main(["run", "--repo", "x", "--out", str(tmp_path)])
+    assert seen["cfg"].voice.model_path == "from-env.onnx"

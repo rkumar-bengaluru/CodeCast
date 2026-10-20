@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from codecast.compose.ffmpeg import ffmpeg_problems
 from codecast.config import Config
-from codecast.voice.engines import engine_status
+from codecast.voice.engines import engine_status, piper_model_path
 
 
 @dataclass
@@ -38,9 +38,14 @@ def run_checks(cfg: Config, *, require_key: bool, allow_network_tts: bool = Fals
     checks.append(Check("chromium", chrome is None, chrome or "headless Chromium starts",
                         ".venv/bin/python -m playwright install chromium" if chrome else None, True))
     st = engine_status(cfg.voice, allow_network=allow_network_tts)
-    chosen = next((name for name in ("piper", "say", "edge-tts") if st[name] == "ok"), None)
-    checks.append(Check("tts", chosen is not None, f"engine: {chosen}" if chosen else f"no engine: {st}",
-                        None if chosen else "codecast fetch-voice  (or run on macOS with `say`)", True))
+    if cfg.voice.model_path and st["piper"] != "ok":
+        checks.append(Check("tts", False, st["piper"], "fix the path given by --voice-model or CODECAST_VOICE_MODEL",
+                            True))
+    else:
+        chosen = next((name for name in ("piper", "say", "edge-tts") if st[name] == "ok"), None)
+        voice = f" ({piper_model_path(cfg.voice).stem})" if chosen == "piper" else ""
+        checks.append(Check("tts", chosen is not None, f"engine: {chosen}{voice}" if chosen else f"no engine: {st}",
+                            None if chosen else "codecast fetch-voice  (or run on macOS with `say`)", True))
     has_key = bool(os.environ.get(cfg.llm.api_key_env))
     checks.append(Check("llm api key", has_key,
                         f"{cfg.llm.api_key_env} is set" if has_key else f"{cfg.llm.api_key_env} is not set",

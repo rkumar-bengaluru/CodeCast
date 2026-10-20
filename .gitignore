@@ -224,3 +224,6 @@ __marimo__/
 workspace/
 .venv/
 *.egg-info/
+
+# custom piper voices are large (GitHub rejects > 100 MB); keep their .onnx.json configs only
+voices/*.onnx

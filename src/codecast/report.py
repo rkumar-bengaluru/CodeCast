@@ -77,6 +77,7 @@ class RunReport(BaseModel):
     validation: ValidationInfo = Field(default_factory=ValidationInfo)
     limits: LimitsConfig | None = None  # absent in reports written before limits were configurable
     tts_engine: str | None = None
+    tts_voice: str | None = None
     stage_seconds: dict[str, float] = Field(default_factory=dict)
     video: VideoInfo | None = None
 
