@@ -24,3 +24,13 @@ def _bridge_httpx2(monkeypatch):
                                content=r.content, request=request)
 
     monkeypatch.setattr(httpx2.HTTPTransport, "handle_request", handle)
+
+
+@pytest.fixture(autouse=True)
+def _restore_environ():
+    # load_env_file writes straight into os.environ; keep one test's .env out of the next.
+    import os
+    saved = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(saved)

@@ -33,3 +33,11 @@ def test_bad_config_is_exit_7(tmp_path):
 def test_from_stage_requires_run_id(tmp_path):
     assert cli.main(["run", "--repo", "x", "--out", str(tmp_path), "--from-stage", "render",
                      "--workspace", str(tmp_path / "ws")]) == 7
+
+
+def test_dotenv_in_cwd_is_loaded(monkeypatch, tmp_path, capsys):
+    monkeypatch.delenv("CODECAST_DURATION_MAX_S", raising=False)
+    (tmp_path / ".env").write_text("CODECAST_DURATION_MAX_S=ten\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["doctor"]) == 7
+    assert "CODECAST_DURATION_MAX_S='ten'" in capsys.readouterr().err

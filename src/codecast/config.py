@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from importlib import resources
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, model_validator
 
 from codecast.errors import ConfigError
+from codecast.settings import limit_overrides, voice_model_from_env
 
 KNOWN_PROVIDERS = ("anthropic", "openai")
 DEFAULT_KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
@@ -34,7 +36,30 @@ class AgentConfig(BaseModel):
     revision_steps: int = 15
 
 
+class LimitsConfig(BaseModel):
+    duration_min_s: float = 50.0
+    duration_max_s: float = 300.0
+    min_words: int = 110
+    max_words: int = 200
+    target_words: int = 155
+
+    @model_validator(mode="after")
+    def _ordered(self) -> "LimitsConfig":
+        if not 0 <= self.duration_min_s <= self.duration_max_s:
+            raise ValueError(f"need 0 <= duration_min_s ({self.duration_min_s:g}) <= duration_max_s "
+                             f"({self.duration_max_s:g})")
+        if not 0 <= self.min_words <= self.target_words <= self.max_words:
+            raise ValueError(f"need 0 <= min_words ({self.min_words}) <= target_words ({self.target_words}) "
+                             f"<= max_words ({self.max_words})")
+        return self
+
+    @property
+    def duration_range(self) -> tuple[float, float]:
+        return (self.duration_min_s, self.duration_max_s)
+
+
 class VoiceConfig(BaseModel):
+    model_path: str | None = None  # a custom piper .onnx; overrides piper_voice + voices_dir when set
     piper_voice: str = "en_US-lessac-medium"
     voices_dir: str = "~/.cache/codecast/voices"
     say_voice: str = "Samantha"
@@ -63,6 +88,7 @@ class Config(BaseModel):
     agent: AgentConfig
     voice: VoiceConfig
     render: RenderConfig
+    limits: LimitsConfig = LimitsConfig()
     pricing: dict[str, ModelRate] = {}
 
 
@@ -81,7 +107,8 @@ def _defaults() -> dict:
     return yaml.safe_load(text)
 
 
-def load_config(path: Path | None = None) -> Config:
+def load_config(path: Path | None = None, *, env: Mapping[str, str] | None = None) -> Config:
+    """Packaged defaults < user YAML file < CODECAST_* environment variables (`env=None` reads os.environ)."""
     data = _defaults()
     user: dict = {}
     if path is not None:
@@ -110,6 +137,16 @@ def load_config(path: Path | None = None) -> Config:
     if data["llm"].get("extended_thinking"):
         raise ConfigError("llm.extended_thinking is incompatible with forced tool_choice in Phase A")
 
+    data["limits"] = {**(data.get("limits") or {}), **limit_overrides(env)}
+    voice_model = voice_model_from_env(env)
+    if voice_model:
+        data["voice"]["model_path"] = voice_model
+    try:
+        LimitsConfig.model_validate(data["limits"])
+    except ValidationError as e:
+        msg = "; ".join(err["msg"].removeprefix("Value error, ") for err in e.errors())
+        raise ConfigError(f"invalid limits: {msg} (from limits: in the config file or the CODECAST_* "
+                          f"variables in the environment / .env)") from e
     try:
         return Config.model_validate(data)
     except ValidationError as e:

@@ -11,6 +11,7 @@ from codecast.errors import CodecastError
 from codecast.pipeline import RunOptions
 from codecast.pipeline import run as pipeline_run
 from codecast.preflight import run_checks
+from codecast.settings import load_env_file
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -39,6 +40,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        load_env_file(Path(".env"))
         cfg = load_config(getattr(args, "config", None))
         if args.cmd == "doctor":
             checks = run_checks(cfg, require_key=False)
