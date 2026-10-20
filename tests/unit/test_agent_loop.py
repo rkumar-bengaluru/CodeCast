@@ -4,11 +4,11 @@ from codecast.agent.loop import DirectorAgent, default_max_steps, initial_messag
 from codecast.agent.submit import Submitter
 from codecast.agent.tools import ToolBox
 from codecast.agent.transcript import Transcript, load_responses
-from codecast.errors import BudgetExceeded, ConfigError, ValidationFailed
+from codecast.errors import BudgetExceeded, CodecastError, ConfigError, ValidationFailed
 from codecast.grounding.validator import ValidationContext
 from codecast.llm.errors import AuthError, ContextLengthError
 from codecast.llm.fake import FAKE_CAPS, FakeProvider, say, tool_call
-from codecast.llm.types import ProviderCaps, ToolResultPart, Usage
+from codecast.llm.types import ChatResponse, Message, ProviderCaps, ToolResultPart, Usage
 
 from tests.unit.storyboards import valid_submission
 
@@ -183,3 +183,20 @@ def test_worked_example_is_valid_and_grounded():
             for c in extract_claims(text):
                 assert identifier_grounded(c.token, everything), (c, text)
     assert 120 <= words <= 140, words
+
+
+def test_empty_reply_is_not_added_to_history(tiny_repo):
+    empty = ChatResponse(Message("assistant", []), "end_turn", Usage())
+    agent, provider, _ = make(tiny_repo, [empty, tool_call("submit_storyboard", {"storyboard": valid_submission()})])
+    agent.run(msgs(tiny_repo))
+    second = provider.requests[1].messages
+    assert all(m.parts for m in second if m.role == "assistant")
+    assert second[-1].role == "user" and "did not call a tool" in second[-1].text()
+
+
+def test_two_empty_replies_stop_the_run(tiny_repo):
+    empty = ChatResponse(Message("assistant", []), "end_turn", Usage())
+    agent, provider, _ = make(tiny_repo, [empty, empty, empty, empty, empty])
+    with pytest.raises(CodecastError, match="model returned empty replies"):
+        agent.run(msgs(tiny_repo))
+    assert len(provider.requests) == 2

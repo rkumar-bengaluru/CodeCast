@@ -72,8 +72,8 @@ def build_request(req: ChatRequest, model: str, caps: ProviderCaps, *, base_url:
         elif m.role == "user":
             msgs.append({"role": "user", "content": _user_content(m.parts)})
         elif m.role == "assistant":
-            d: dict[str, Any] = {"role": "assistant", "content": m.text() or None}
             calls = m.tool_calls()
+            d: dict[str, Any] = {"role": "assistant", "content": m.text() or (None if calls else "")}
             if calls:
                 d["tool_calls"] = [{"id": c.id, "type": "function",
                                     "function": {"name": c.name, "arguments": json.dumps(c.args)}} for c in calls]

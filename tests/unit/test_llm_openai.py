@@ -109,3 +109,9 @@ def test_errors_normalized(response, exc):
     respx.post(URL).mock(return_value=response)
     with pytest.raises(exc):
         OpenAIProvider(api_key="k", model="m").complete(ChatRequest(messages=conversation()[:2]))
+
+
+def test_assistant_without_text_or_calls_sends_empty_string():
+    req = ChatRequest(messages=[Message("user", [TextPart("hi")]), Message("assistant", [])], tools=[])
+    body = build_request(req, "m", OPENAI_CAPS, base_url=None)
+    assert body["messages"][1]["content"] == ""

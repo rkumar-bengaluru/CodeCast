@@ -19,6 +19,7 @@ from codecast.models import RepoMap, Storyboard
 NUDGE = ("You did not call a tool. Finish now by calling submit_storyboard with your best fully grounded "
          "storyboard.")
 MAX_NUDGES = 2
+MAX_EMPTY_REPLIES = 2
 
 
 def default_max_steps(n_files: int) -> int:
@@ -122,7 +123,7 @@ class DirectorAgent:
             raise CodecastError(f"LLM provider error: {e}", stage="agent") from e
 
     def _loop(self, steps: int) -> Storyboard:
-        nudges = 0
+        nudges = empties = 0
         choice: str | dict = "auto"
         for _ in range(steps):
             self._check_budget()
@@ -138,7 +139,14 @@ class DirectorAgent:
             self.stats.usage = self.stats.usage + resp.usage
             if self.transcript:
                 self.transcript.log_response(step, resp)
-            self.messages.append(resp.message)
+            # An empty assistant turn is invalid on the wire for every provider, so it never enters history.
+            if resp.message.parts:
+                self.messages.append(resp.message)
+                empties = 0
+            else:
+                empties += 1
+                if empties >= MAX_EMPTY_REPLIES:
+                    raise CodecastError("model returned empty replies", stage="agent")
             self._logged = len(self.messages)
             calls = resp.message.tool_calls()
             if not calls:
