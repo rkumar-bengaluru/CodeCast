@@ -16,7 +16,7 @@ from codecast.errors import CodecastError
 from codecast.grounding.spans import PointerError, dumps_decimal, load_data_decimal, read_lines, resolve_pointer
 from codecast.ingest.sandbox import Sandbox, SandboxError
 from codecast.llm.types import ImagePart, TextPart, ToolCallPart, ToolResultPart, ToolSpec
-from codecast.models import RepoMap, Storyboard, Submission
+from codecast.models import AgentSubmission, RepoMap, Storyboard
 
 MAX_RESULT_BYTES = 32 * 1024
 IMAGE_LONG_EDGE = 1568
@@ -87,7 +87,7 @@ _PY_TYPES = {"string": str, "integer": int}
 
 
 def _submit_spec() -> ToolSpec:
-    schema = Submission.model_json_schema()
+    schema = AgentSubmission.model_json_schema()
     defs = schema.pop("$defs", {})
     return ToolSpec("submit_storyboard",
                     "Submit the complete storyboard. Returns 'accepted' or a list of validation errors to fix. "

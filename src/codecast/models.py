@@ -149,6 +149,23 @@ class Submission(_Strict):
     scenes: list[Scene]
 
 
+# What the LLM director may submit: the catalog without clip scenes and video sources. Those exist for tools
+# that write their own storyboard from screen recordings; offering them to the LLM would only cost it rounds.
+AgentSource = Annotated[Union[TextSpan, JsonSpan, ImageRef], Field(discriminator="kind")]
+AgentScene = Annotated[
+    Union[TitleScene, BulletsScene, CodeScene, ImageScene, MetricsTableScene, DiagramScene,
+          TerminalScene, OutroScene],
+    Field(discriminator="type"),
+]
+
+
+class AgentSubmission(_Strict):
+    model_config = ConfigDict(extra="forbid", title="Submission")  # same tool schema the LLM saw before clips
+    title: str
+    sources: list[AgentSource]
+    scenes: list[AgentScene]
+
+
 class Storyboard(_Strict):
     version: int = 1
     repo_url: str

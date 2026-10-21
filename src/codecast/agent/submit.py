@@ -11,7 +11,7 @@ from codecast.errors import ValidationFailed
 from codecast.grounding.validator import (
     ValidationContext, ValidationResult, validate_submission,
 )
-from codecast.models import Issue, Storyboard
+from codecast.models import AgentSubmission, Issue, Storyboard
 
 MAX_FEEDBACK_ERRORS = 60
 
@@ -39,7 +39,7 @@ class Submitter:
     def __call__(self, raw: Any) -> SubmitOutcome:
         self.rounds_total += 1
         self.rounds_phase += 1
-        res = validate_submission(raw, self.ctx)
+        res = validate_submission(raw, self.ctx, AgentSubmission)
         if res.ok and self.previous_narration is not None and _narration(res.storyboard) == self.previous_narration:
             res = ValidationResult(None, [Issue(
                 path="scenes", code="NARRATION_UNCHANGED",

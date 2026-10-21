@@ -17,8 +17,8 @@ from codecast.grounding.numbers import (
 )
 from codecast.grounding.spans import SourceIndex, check_sources, code_display_text, format_cell
 from codecast.models import (
-    BulletsScene, CellRef, ClipScene, CodeScene, DiagramScene, ImageScene, Issue, JsonSpan, MetricsTableScene,
-    OutroScene, RepoMap, Storyboard, Submission, TerminalScene, TitleScene,
+    AgentSubmission, BulletsScene, CellRef, ClipScene, CodeScene, DiagramScene, ImageScene, Issue, JsonSpan,
+    MetricsTableScene, OutroScene, RepoMap, Storyboard, Submission, TerminalScene, TitleScene,
 )
 
 
@@ -324,12 +324,13 @@ def scene_rule_issues(sb: Storyboard, index: SourceIndex, ctx: ValidationContext
     return issues
 
 
-def validate_submission(raw: Any, ctx: ValidationContext) -> ValidationResult:
+def validate_submission(raw: Any, ctx: ValidationContext,
+                        model: type[Submission] | type[AgentSubmission] = Submission) -> ValidationResult:
     if not isinstance(raw, dict):
         return ValidationResult(None, [Issue(path="storyboard", code="SCHEMA",
                                              message="storyboard must be a JSON object")])
     try:
-        sub = Submission.model_validate(raw)
+        sub = model.model_validate(raw)
     except ValidationError as e:
         return ValidationResult(None, [Issue(path=_loc(err["loc"]), code="SCHEMA", message=err["msg"])
                                        for err in e.errors()[:20]])

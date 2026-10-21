@@ -1,10 +1,13 @@
 """Clip scenes: storyboard shape, validation (ffprobe stubbed) and the compose filter."""
 
+import json
 import logging
 from pathlib import Path
 
 import pytest
 
+from codecast.agent.submit import Submitter
+from codecast.agent.tools import SubmitOutcome, ToolBox
 from codecast.compose.segments import CLIP_PAD_S, clip_filter, clip_speed, segment_command
 from codecast.errors import RenderError
 from codecast.grounding import spans
@@ -105,6 +108,26 @@ def test_video_source_grounds_nothing(tiny_repo, video):
     raw["sources"].append({"kind": "json", "id": "n", "file": "metrics.json", "pointer": "/n_videos"})
     raw["scenes"][4]["narration"][0]["source_ids"] = ["demo", "n"]   # the number needs a citable source
     assert run(tiny_repo, raw).ok
+
+
+def test_llm_tool_schema_offers_no_clips(tiny_repo):
+    """The LLM director sees the catalog it saw before clips existed: no clip scene, no video source."""
+    tb = ToolBox(tiny_repo, lambda raw: SubmitOutcome(False, None, "rejected"))
+    spec = {s.name: s for s in tb.specs(vision=True)}["submit_storyboard"]
+    text = json.dumps(spec.input_schema)
+    assert '"clip"' not in text and '"video"' not in text
+    assert "ClipScene" not in spec.input_schema["$defs"] and "VideoRef" not in spec.input_schema["$defs"]
+    assert spec.input_schema["properties"]["storyboard"]["title"] == "Submission"
+
+
+def test_llm_submission_with_a_clip_is_a_schema_error(tiny_repo, video):
+    """Same outcome as before clips existed; storyboards written by tools still accept them (above)."""
+    s = Submitter(ValidationContext(repomap=tiny_repo, llm={"provider": "fake", "model": "m"}, output_allowlist=[]))
+    out = s(clip_submission(2.0, 9.5))
+    errors = json.loads(out.feedback)["errors"]
+    assert not out.accepted and {e["code"] for e in errors} == {"SCHEMA"}
+    assert any(e["path"].startswith("scenes[4]") for e in errors)
+    assert any(e["path"].startswith("sources[") for e in errors)
 
 
 def clip_frames(start: float, end: float, duration: float, **kw) -> SceneFrames:
