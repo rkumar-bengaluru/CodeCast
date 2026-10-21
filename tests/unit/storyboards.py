@@ -49,3 +49,16 @@ def valid_submission() -> dict:
                                     "on your own clips today.", "source_ids": ["readme"]}]},
         ],
     })
+
+
+CLIP_FILE = "rec/demo.mp4"
+
+
+def clip_submission(start_s: float = 0.0, end_s: float = 1.5) -> dict:
+    """valid_submission with the image scene replaced by a clip of the screen recording at CLIP_FILE."""
+    raw = valid_submission()
+    raw["sources"].append({"kind": "video", "id": "demo", "file": CLIP_FILE})
+    raw["scenes"][4] = {"type": "clip", "video_id": "demo", "start_s": start_s, "end_s": end_s,
+                        "narration": [{"text": "This recording shows the tool sorting a clip from start to "
+                                               "finish, right in the browser.", "source_ids": ["demo"]}]}
+    return raw

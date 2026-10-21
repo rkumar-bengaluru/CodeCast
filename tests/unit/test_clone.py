@@ -127,3 +127,24 @@ def test_eval_recheck_plain_folder(tmp_path):
     (src / "a.py").write_text("x = 2\n")
     with pytest.raises(IngestError, match="changed since the run"):
         clone_at(str(src), rm.commit_sha, tmp_path / "re2" / "repo", rm.repo_url)
+
+
+def test_remove_tree_deletes_read_only_files(tmp_path):
+    import os
+    import stat
+    from codecast.ingest.clone import remove_tree
+    pack = tmp_path / "ws" / "repo" / ".git" / "objects" / "pack"
+    pack.mkdir(parents=True)
+    f = pack / "pack-1.pack"
+    f.write_bytes(b"x")
+    os.chmod(f, stat.S_IREAD)   # what git does to packs; Windows then refuses to unlink it
+    remove_tree(tmp_path / "ws" / "repo")
+    assert not (tmp_path / "ws" / "repo").exists()
+
+
+def test_reingest_into_existing_checkout(local_repo, tmp_path):
+    src, sha = local_repo
+    dest = tmp_path / "ws" / "repo"
+    ingest(str(src), dest)
+    assert any(p.is_file() for p in (dest / ".git").rglob("*"))
+    assert ingest(str(src), dest).commit_sha == sha   # PermissionError on Windows before the read-only fix

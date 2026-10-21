@@ -16,6 +16,8 @@ LIMIT_VARS: dict[str, tuple[str, type]] = {
     "min_words": ("CODECAST_MIN_WORDS", int),
     "max_words": ("CODECAST_MAX_WORDS", int),
     "target_words": ("CODECAST_TARGET_WORDS", int),
+    "min_scenes": ("CODECAST_MIN_SCENES", int),
+    "max_scenes": ("CODECAST_MAX_SCENES", int),
 }
 VOICE_MODEL_VAR = "CODECAST_VOICE_MODEL"
 

@@ -206,12 +206,14 @@ def test_two_empty_replies_stop_the_run(tiny_repo):
 def test_prompt_defaults_render_default_numbers():
     p = load_director_prompt()
     assert "50–300 second" in p and "**110–200**" in p and "**140–170**" in p and "$" not in p
+    assert "Write 4–10 scenes" in p
 
 
 def test_prompt_follows_limits():
     p = load_director_prompt(LimitsConfig(duration_max_s=600, max_words=1200, target_words=1000))
     assert "50–600 second" in p and "**110–1200**" in p and "**985–1015**" in p
     assert "outside 50–600 s" in p
+    assert "Write 40–60 scenes" in load_director_prompt(LimitsConfig(min_scenes=40, max_scenes=60))
 
 
 

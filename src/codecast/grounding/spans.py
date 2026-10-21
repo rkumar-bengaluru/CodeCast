@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import subprocess
 import textwrap
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, localcontext
@@ -13,7 +14,8 @@ from typing import Any
 
 import yaml
 
-from codecast.models import ImageRef, Issue, JsonSpan, RepoMap, Source, TextSpan
+from codecast.ingest.sandbox import Sandbox, SandboxError
+from codecast.models import ImageRef, Issue, JsonSpan, RepoMap, Source, TextSpan, VideoRef
 
 
 class PointerError(Exception):
@@ -211,6 +213,47 @@ class SourceIndex:
     spans: dict[str, Source] = field(default_factory=dict)
     texts: dict[str, str] = field(default_factory=dict)
     values: dict[str, Any] = field(default_factory=dict)
+    durations: dict[str, float] = field(default_factory=dict)  # video source id -> seconds (ffprobe)
+
+
+VIDEO_SUFFIXES = (".mp4", ".webm")
+
+
+def video_duration(path: Path) -> float:
+    """Container duration in seconds, by ffprobe. Raises ValueError when the file is not a readable video."""
+    try:
+        res = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                              "stream=codec_type:format=duration", "-of", "json", str(path)],
+                             capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise ValueError(f"ffprobe could not run: {e}") from None
+    if res.returncode != 0:
+        raise ValueError(res.stderr.strip()[-300:] or f"ffprobe exited {res.returncode}")
+    try:
+        info = json.loads(res.stdout)
+        if not info.get("streams"):
+            raise ValueError("no video stream")
+        return float(info["format"]["duration"])
+    except (KeyError, TypeError, json.JSONDecodeError) as e:
+        raise ValueError(f"no duration reported ({e})") from None
+
+
+def _check_video(i: int, src: VideoRef, root: Path, index: SourceIndex) -> list[Issue]:
+    """Videos are checked on disk, not against the repo map: recordings are far above its per-file size cap."""
+    index.texts[src.id] = ""  # a recording grounds nothing
+    try:
+        path = Sandbox(root).resolve(src.file)
+    except SandboxError as e:
+        return [_issue(i, "VIDEO_NOT_FOUND", f"{src.file}: {e}")]
+    if not path.is_file():
+        return [_issue(i, "VIDEO_NOT_FOUND", f"{src.file} is not a file in the repo")]
+    if path.suffix.lower() not in VIDEO_SUFFIXES:
+        return [_issue(i, "VIDEO_BAD_EXTENSION", f"{src.file} must be one of {', '.join(VIDEO_SUFFIXES)}")]
+    try:
+        index.durations[src.id] = video_duration(path)
+    except ValueError as e:
+        return [_issue(i, "VIDEO_UNREADABLE", f"{src.file} could not be probed: {e}")]
+    return []
 
 
 def _issue(i: int, code: str, message: str) -> Issue:
@@ -251,6 +294,9 @@ def check_sources(sources: list[Source], repomap: RepoMap) -> tuple[list[Issue],
             issues.append(_issue(i, "DUPLICATE_SOURCE_ID", f"source id {src.id!r} declared twice"))
             continue
         index.spans[src.id] = src
+        if isinstance(src, VideoRef):
+            issues += _check_video(i, src, root, index)
+            continue
         entry = repomap.file(src.file)
         if isinstance(src, ImageRef):
             if entry is None or entry.kind != "image":

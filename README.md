@@ -14,7 +14,7 @@ Docs are walls of text; a new engineer needs half an hour to absorb a README, a 
 | 4 Render | Playwright renders 8 scene templates + caption PNGs (fonts and mermaid.js vendored, no network) | captions as PNG overlays (Homebrew ffmpeg has no libass) |
 | 5 Compose | ffmpeg segments + overlays + `loudnorm` audio → ffprobe post-check (50–300 s by default, A/V drift < 0.1 s) | fail loudly with typed exit codes 0–7 |
 
-The LLM sits behind a provider-neutral adapter (Anthropic, OpenAI and OpenAI-compatible endpoints, plus a Fake provider that replays transcripts for offline tests). The agent never writes HTML or ffmpeg commands; it picks scenes from a fixed catalog: title, bullets, code, image (with highlights / Ken Burns), metrics table, mermaid diagram, terminal, outro.
+The LLM sits behind a provider-neutral adapter (Anthropic, OpenAI and OpenAI-compatible endpoints, plus a Fake provider that replays transcripts for offline tests). The agent never writes HTML or ffmpeg commands; it picks scenes from a fixed catalog: title, bullets, code, image (with highlights / Ken Burns), metrics table, mermaid diagram, terminal, outro. Tools that write their own storyboard (no LLM) can also use a `clip` scene that plays a range of a screen recording (`{"kind": "video", "id", "file"}` source, `.mp4`/`.webm` in the checkout), sped up or held on its last frame to fit the narration.
 
 ## 2. Grounding: the core idea
 
@@ -67,7 +67,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install -e '.[dev]'
 .venv/bin/python -m pytest -q
 ```
 
-**Configure** without editing code: copy [`.env.example`](.env.example) to `.env` (git-ignored; variables already set in the shell win). `CODECAST_DURATION_MIN_S` / `CODECAST_DURATION_MAX_S` set the accepted video length (default 50–300 s), `CODECAST_MIN_WORDS` / `CODECAST_MAX_WORDS` / `CODECAST_TARGET_WORDS` the narration length (default 110 / 200 / 155 words; raise them with the duration for longer videos). The director prompt, validator, duration loop, post-check and `codecast eval` all read the same values, and the run report records them.
+**Configure** without editing code: copy [`.env.example`](.env.example) to `.env` (git-ignored; variables already set in the shell win). `CODECAST_DURATION_MIN_S` / `CODECAST_DURATION_MAX_S` set the accepted video length (default 50–300 s), `CODECAST_MIN_WORDS` / `CODECAST_MAX_WORDS` / `CODECAST_TARGET_WORDS` the narration length (default 110 / 200 / 155 words; raise them with the duration for longer videos). `CODECAST_MIN_SCENES` / `CODECAST_MAX_SCENES` set the allowed scene count (default 4 / 10). The director prompt, validator, duration loop, post-check and `codecast eval` all read the same values, and the run report records them.
 
 **Your own voice:** `codecast run ... --voice-model voices/my-voice.onnx` (or `CODECAST_VOICE_MODEL`) uses a custom piper voice; its `.onnx.json` must sit next to it. A missing file is an error, never a silent fallback. `codecast doctor --voice-model ...` checks it.
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import wave
 from pathlib import Path
 from typing import Iterator
@@ -12,9 +13,15 @@ from codecast.errors import RenderError
 from codecast.models import Box, CaptionImage, SceneFrames
 from codecast.voice.timeline import Timeline
 
+log = logging.getLogger("codecast.compose")
+
 FPS, W, H, CAPTION_Y = 30, 1920, 1080, 920
 SAMPLE_RATE = 48_000
 BASE_FILTER = f"scale={W}:{H}:flags=lanczos,setsar=1,fps={FPS},format=rgba"
+MAX_CLIP_SPEEDUP = 4.0  # beyond this a recording is hard to follow; warn, but still fit it
+# Extra held frames after a clip so decoder rounding can never leave the segment short of its duration;
+# the output -t cuts at exactly the scene duration, keeping the concatenated video in sync with the audio.
+CLIP_PAD_S = 0.5
 
 
 def n_frames(duration: float) -> int:
@@ -49,9 +56,29 @@ def concat_list(paths: list[Path]) -> str:
     return "".join(f"file {_entry(p)}\n" for p in paths)
 
 
+def clip_speed(length: float, duration: float) -> float:
+    """A clip longer than its scene plays faster to fit; a shorter one plays at normal speed, then holds."""
+    return length / duration if length > duration else 1.0
+
+
+def clip_filter(sf: SceneFrames) -> str:
+    """Timing part of a clip segment's filter: retime [start, end] to fit sf.duration, then hold the last frame."""
+    if sf.clip is None:
+        raise RenderError(f"{sf.scene_id}: clip motion needs a clip", stage="compose")
+    length = sf.clip.end - sf.clip.start
+    speed = clip_speed(length, sf.duration)
+    if speed > MAX_CLIP_SPEEDUP:
+        log.warning("%s: clip of %.1fs plays %.1fx faster to fit %.1fs of narration", sf.scene_id, length, speed,
+                    sf.duration)
+    setpts = "setpts=PTS-STARTPTS" if speed == 1.0 else f"setpts=(PTS-STARTPTS)/{speed:.6f}"
+    hold = max(0.0, sf.duration - length / speed) + CLIP_PAD_S
+    return f"{setpts},tpad=stop_mode=clone:stop_duration={hold:.3f}"
+
+
 def segment_command(sf: SceneFrames, out_mp4: Path, filter_file: Path, workdir: Path) -> tuple[list[str], str, dict[Path, str]]:
     dur = f"{sf.duration:.3f}"
     argv = ["ffmpeg", "-y", "-v", "error"]
+    base = BASE_FILTER
     extra: dict[Path, str] = {}
     if sf.motion == "static":
         argv += ["-loop", "1", "-framerate", str(FPS), "-t", dur, "-i", sf.frames[0]]
@@ -61,11 +88,14 @@ def segment_command(sf: SceneFrames, out_mp4: Path, filter_file: Path, workdir: 
         lst = Path(workdir) / f"{sf.scene_id}_frames.txt"
         extra[lst] = sequence_list(sf.frames, sf.duration)
         argv += ["-f", "concat", "-safe", "0", "-i", str(lst)]
+    elif sf.motion == "clip":
+        base = f"{clip_filter(sf)},{base}"
+        argv += ["-ss", f"{sf.clip.start:.3f}", "-t", f"{sf.clip.end - sf.clip.start:.3f}", "-an", "-i", sf.clip.path]
     else:
         raise RenderError(f"unknown motion {sf.motion!r}", stage="compose")
     for cap in sf.captions:
         argv += ["-loop", "1", "-framerate", str(FPS), "-t", dur, "-i", cap.path]
-    ftext = build_filter(BASE_FILTER, sf.captions)
+    ftext = build_filter(base, sf.captions)
     argv += ["-/filter_complex", str(filter_file), "-map", "[vout]", "-t", dur, "-r", str(FPS),
              "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", "-an", str(out_mp4)]
     return argv, ftext, extra
