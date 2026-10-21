@@ -37,7 +37,14 @@ class ImageRef(_Strict):
     file: str
 
 
-Source = Annotated[Union[TextSpan, JsonSpan, ImageRef], Field(discriminator="kind")]
+class VideoRef(_Strict):
+    """A screen recording in the checkout (.mp4/.webm), played by a clip scene. It grounds no claims."""
+    kind: Literal["video"] = "video"
+    id: str
+    file: str
+
+
+Source = Annotated[Union[TextSpan, JsonSpan, ImageRef, VideoRef], Field(discriminator="kind")]
 
 
 # ---- scenes (§6.2) ----
@@ -110,6 +117,14 @@ class TerminalScene(_SceneBase):
     output_span_id: str | None = None
 
 
+class ClipScene(_SceneBase):
+    """Plays [start_s, end_s] of a video source, fitted to the narration length at compose time."""
+    type: Literal["clip"] = "clip"
+    video_id: str
+    start_s: float
+    end_s: float
+
+
 class OutroScene(_SceneBase):
     type: Literal["outro"] = "outro"
     repo_url: str
@@ -118,7 +133,7 @@ class OutroScene(_SceneBase):
 
 Scene = Annotated[
     Union[TitleScene, BulletsScene, CodeScene, ImageScene, MetricsTableScene, DiagramScene,
-          TerminalScene, OutroScene],
+          TerminalScene, ClipScene, OutroScene],
     Field(discriminator="type"),
 ]
 
@@ -199,11 +214,18 @@ class CaptionImage(BaseModel):
     end: float
 
 
+class ClipSource(BaseModel):
+    path: str  # absolute path of the video inside the checkout
+    start: float
+    end: float
+
+
 class SceneFrames(BaseModel):
     scene_id: str
-    frames: list[str]
-    motion: Literal["static", "ken_burns", "sequence"]
+    frames: list[str]  # for a clip: its first frame, as a preview still
+    motion: Literal["static", "ken_burns", "sequence", "clip"]
     duration: float
     image_box: Box | None = None
     ken_burns: KenBurnsMotion | None = None
+    clip: ClipSource | None = None
     captions: list[CaptionImage] = []

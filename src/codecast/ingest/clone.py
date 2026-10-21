@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 
@@ -53,6 +54,18 @@ def _local_origin(path: Path) -> str | None:
         return None
 
 
+def _clear_readonly(func, path, exc) -> None:
+    """rmtree onexc hook: git marks pack and object files read-only, which Windows refuses to delete."""
+    if not isinstance(exc, PermissionError):
+        raise exc
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
+def remove_tree(path: Path) -> None:
+    shutil.rmtree(path, onexc=_clear_readonly)
+
+
 def _tree_bytes(root: Path) -> int:
     total = 0
     for dirpath, dirnames, filenames in os.walk(root):
@@ -91,7 +104,7 @@ def ingest(repo: str, dest: Path, *, timeout_s: float = 120, max_bytes: int = 1_
     local = Path(repo.strip()).expanduser()
     if local.is_dir() and not (local / ".git").exists():
         if dest.exists():
-            shutil.rmtree(dest)
+            remove_tree(dest)
         dest.parent.mkdir(parents=True, exist_ok=True)
         return _copy_folder(local, dest, max_bytes=max_bytes, max_file_bytes=max_file_bytes)
     if local.exists():
@@ -101,7 +114,7 @@ def ingest(repo: str, dest: Path, *, timeout_s: float = 120, max_bytes: int = 1_
         repo_url = normalize_repo_url(repo)
         src = repo_url
     if dest.exists():
-        shutil.rmtree(dest)
+        remove_tree(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     _git(["clone", "--depth", "1", "--no-recurse-submodules", "--quiet", src, str(dest)], timeout=timeout_s)
     size = _tree_bytes(dest)

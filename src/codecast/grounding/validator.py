@@ -17,7 +17,7 @@ from codecast.grounding.numbers import (
 )
 from codecast.grounding.spans import SourceIndex, check_sources, code_display_text, format_cell
 from codecast.models import (
-    BulletsScene, CellRef, CodeScene, DiagramScene, ImageScene, Issue, JsonSpan, MetricsTableScene,
+    BulletsScene, CellRef, ClipScene, CodeScene, DiagramScene, ImageScene, Issue, JsonSpan, MetricsTableScene,
     OutroScene, RepoMap, Storyboard, Submission, TerminalScene, TitleScene,
 )
 
@@ -54,6 +54,8 @@ def scene_source_ids(scene) -> set[str]:
         ids.add(scene.span_id)
     elif isinstance(scene, ImageScene):
         ids.add(scene.image_id)
+    elif isinstance(scene, ClipScene):
+        ids.add(scene.video_id)
     elif isinstance(scene, MetricsTableScene):
         ids |= {c.span_id for row in scene.rows for c in row if isinstance(c, CellRef)}
     elif isinstance(scene, TerminalScene):
@@ -102,6 +104,8 @@ def _reference_issues(sb: Storyboard, index: SourceIndex) -> list[Issue]:
             need(sc.span_id, f"scenes[{i}].span_id", "text")
         elif isinstance(sc, ImageScene):
             need(sc.image_id, f"scenes[{i}].image_id", "image")
+        elif isinstance(sc, ClipScene):
+            need(sc.video_id, f"scenes[{i}].video_id", "video")
         elif isinstance(sc, MetricsTableScene):
             for r, row in enumerate(sc.rows):
                 for c, cell in enumerate(row):
@@ -167,7 +171,6 @@ def _grounding_issues(sb: Storyboard, index: SourceIndex) -> list[Issue]:
     return issues
 
 
-MIN_SCENES, MAX_SCENES = 4, 10
 MAX_SENTENCE_WORDS = 30
 # Widest code line the code template fits at its 18px minimum font (measured: 144 with 4-digit line numbers).
 MAX_CODE_COLS = 140
@@ -188,8 +191,9 @@ def structure_issues(sb: Storyboard, limits: LimitsConfig | None = None) -> list
     limits = limits or LimitsConfig()
     issues: list[Issue] = []
     n = len(sb.scenes)
-    if not MIN_SCENES <= n <= MAX_SCENES:
-        issues.append(Issue(path="scenes", code="SCENE_COUNT", message=f"{n} scenes; need {MIN_SCENES}-{MAX_SCENES}"))
+    if not limits.min_scenes <= n <= limits.max_scenes:
+        issues.append(Issue(path="scenes", code="SCENE_COUNT",
+                            message=f"{n} scenes; need {limits.min_scenes}-{limits.max_scenes}"))
     if n and sb.scenes[0].type != "title":
         issues.append(Issue(path="scenes[0]", code="FIRST_SCENE", message="first scene must be 'title'"))
     if n and sb.scenes[-1].type != "outro":
@@ -272,6 +276,12 @@ def scene_rule_issues(sb: Storyboard, index: SourceIndex, ctx: ValidationContext
                 if not _rect_ok(r):
                     issues.append(Issue(path=path, code="RECT_OUT_OF_BOUNDS",
                                         message="rect must be [x,y,w,h] in 0-1 with x+w<=1, y+h<=1, w,h>0"))
+        elif isinstance(sc, ClipScene):
+            length = index.durations.get(sc.video_id)  # None: the source is missing, wrong or unreadable
+            if length is not None and not 0 <= sc.start_s < sc.end_s <= length:
+                issues.append(Issue(path=f"{p}.end_s", code="CLIP_RANGE_INVALID",
+                                    message=f"need 0 <= start_s ({sc.start_s:g}) < end_s ({sc.end_s:g}) <= "
+                                            f"the video's duration ({length:.3f}s)"))
         elif isinstance(sc, MetricsTableScene):
             for r, row in enumerate(sc.rows):
                 if len(row) != len(sc.columns):

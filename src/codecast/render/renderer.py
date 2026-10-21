@@ -13,14 +13,15 @@ from pygments.formatters import HtmlFormatter
 from pygments.lexers import TextLexer, get_lexer_for_filename
 from pygments.util import ClassNotFound
 
+from codecast.compose.ffmpeg import run_ffmpeg
 from codecast.errors import RenderError
 from codecast.grounding.spans import code_display_text, format_cell, load_data_decimal, resolve_pointer
 from codecast.ingest.sandbox import Sandbox, SandboxError
 from codecast.models import (
-    Box, BulletsScene, CellRef, CodeScene, DiagramScene, ImageScene, MetricsTableScene, OutroScene,
+    Box, BulletsScene, CellRef, ClipScene, CodeScene, DiagramScene, ImageScene, MetricsTableScene, OutroScene,
     Storyboard, TerminalScene, TextSpan, TitleScene, scene_id,
 )
-from codecast.models import CaptionImage, SceneFrames
+from codecast.models import CaptionImage, ClipSource, SceneFrames
 from codecast.voice.timeline import Timeline
 
 PKG = Path(str(resources.files("codecast.render")))
@@ -106,6 +107,28 @@ class RenderedScene(BaseModel):
     image_box: Box | None = None
 
 
+def clip_source(sb: Storyboard, index: int, repo_root: Path) -> ClipSource:
+    sc = sb.scenes[index]
+    try:
+        path = Sandbox(Path(repo_root)).resolve(sb.sources[sc.video_id].file)
+    except SandboxError as e:
+        raise RenderError(f"{scene_id(index)}: {e}") from e
+    return ClipSource(path=str(path), start=sc.start_s, end=sc.end_s)
+
+
+def clip_still(clip: ClipSource, out_png: Path) -> None:
+    """The clip's first frame as a 1920x1080 still (previews and thumbnails); compose plays the video itself."""
+    out_png = Path(out_png)
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        run_ffmpeg(["ffmpeg", "-y", "-v", "error", "-ss", f"{clip.start:.3f}", "-i", clip.path, "-frames:v", "1",
+                    "-vf", f"scale={WIDTH}:{HEIGHT}:flags=lanczos,setsar=1", str(out_png)], timeout=120)
+    except RenderError as e:
+        raise RenderError(f"{out_png.name}: {e.message}") from e
+    if not out_png.is_file():
+        raise RenderError(f"{out_png.name}: no frame at {clip.start:g}s of {clip.path}")
+
+
 def _route_handler(pages: dict[str, str], repo_root: Path | None):
     sandbox = Sandbox(repo_root) if repo_root else None
     static_root = STATIC.resolve()
@@ -186,6 +209,10 @@ class Renderer:
             ctx.close()
 
     def render_scene(self, sb: Storyboard, index: int, repo_root: Path, out_dir: Path) -> RenderedScene:
+        if isinstance(sb.scenes[index], ClipScene):  # no HTML: the video is the picture
+            png = Path(out_dir) / f"{scene_id(index)}.png"
+            clip_still(clip_source(sb, index, Path(repo_root)), png)
+            return RenderedScene(frames=[str(png)])
         name, ctx = scene_context(sb, index, Path(repo_root))
         tpl = _env.get_template(name)
         sid = scene_id(index)
@@ -235,13 +262,16 @@ def render_all(sb: Storyboard, timeline: Timeline, repo_root: Path, out_dir: Pat
             renderer.render_caption(cue.text, png)
             captions.append(CaptionImage(path=str(png), start=round(cue.start - timing.start, 3),
                                          end=round(cue.end - timing.start, 3)))
+        clip = None
         if isinstance(sc, ImageScene) and sc.motion.kind == "ken_burns":
             motion, kb = "ken_burns", sc.motion
         elif isinstance(sc, TerminalScene):
             motion, kb = "sequence", None
+        elif isinstance(sc, ClipScene):
+            motion, kb, clip = "clip", None, clip_source(sb, i, Path(repo_root))
         else:
             motion, kb = "static", None
         result.append(SceneFrames(scene_id=timing.scene_id, frames=rendered.frames, motion=motion,
                                   duration=timing.duration, image_box=rendered.image_box, ken_burns=kb,
-                                  captions=captions))
+                                  clip=clip, captions=captions))
     return result

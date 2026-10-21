@@ -42,6 +42,8 @@ class LimitsConfig(BaseModel):
     min_words: int = 110
     max_words: int = 200
     target_words: int = 155
+    min_scenes: int = 4
+    max_scenes: int = 10
 
     @model_validator(mode="after")
     def _ordered(self) -> "LimitsConfig":
@@ -51,6 +53,8 @@ class LimitsConfig(BaseModel):
         if not 0 <= self.min_words <= self.target_words <= self.max_words:
             raise ValueError(f"need 0 <= min_words ({self.min_words}) <= target_words ({self.target_words}) "
                              f"<= max_words ({self.max_words})")
+        if not 2 <= self.min_scenes <= self.max_scenes:  # a title and an outro at least
+            raise ValueError(f"need 2 <= min_scenes ({self.min_scenes}) <= max_scenes ({self.max_scenes})")
         return self
 
     @property

@@ -11,7 +11,14 @@ def test_no_env_keeps_default_limits():
     cfg = load_config(env={})
     assert cfg.limits.duration_range == (50.0, 300.0)
     assert (cfg.limits.min_words, cfg.limits.max_words, cfg.limits.target_words) == (110, 200, 155)
+    assert (cfg.limits.min_scenes, cfg.limits.max_scenes) == (4, 10)
     assert cfg.voice.model_path is None
+
+
+def test_env_overrides_scene_count():
+    cfg = load_config(env={"CODECAST_MIN_SCENES": "40", "CODECAST_MAX_SCENES": "60"})
+    assert (cfg.limits.min_scenes, cfg.limits.max_scenes) == (40, 60)
+    assert load_config(env={"CODECAST_MAX_SCENES": "60"}).limits.min_scenes == 4
 
 
 def test_env_overrides_duration_only():
@@ -33,6 +40,9 @@ def test_env_overrides_words_and_voice():
     ({"CODECAST_DURATION_MIN_S": "400"}, "duration"),          # 400 > default max 300
     ({"CODECAST_DURATION_MIN_S": "-1"}, "duration"),
     ({"CODECAST_TARGET_WORDS": "500"}, "target_words"),
+    ({"CODECAST_MAX_SCENES": "6.5"}, "CODECAST_MAX_SCENES"),
+    ({"CODECAST_MIN_SCENES": "12"}, "min_scenes"),             # 12 > default max 10
+    ({"CODECAST_MIN_SCENES": "1"}, "min_scenes"),
 ])
 def test_bad_limits_fail_with_the_name(env, needle):
     with pytest.raises(ConfigError, match=needle):

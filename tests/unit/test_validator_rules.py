@@ -33,6 +33,19 @@ def test_scene_count_upper_limit_is_ten(tiny_repo, n_middle, ok):
     assert ("SCENE_COUNT" in codes(run(tiny_repo, raw))) is not ok
 
 
+def test_scene_count_follows_limits(tiny_repo):
+    raw = valid_submission()
+    bullets = raw["scenes"][1]
+    raw["scenes"] = [raw["scenes"][0], *[copy.deepcopy(bullets) for _ in range(13)], raw["scenes"][-1]]
+
+    def scene_count(limits):
+        ctx = ValidationContext(repomap=tiny_repo, llm={}, output_allowlist=[], limits=limits)
+        return [i.message for i in validate_submission(raw, ctx).issues if i.code == "SCENE_COUNT"]
+    assert scene_count(LimitsConfig()) == ["15 scenes; need 4-10"]
+    assert scene_count(LimitsConfig(max_scenes=60)) == []
+    assert scene_count(LimitsConfig(min_scenes=20, max_scenes=60)) == ["15 scenes; need 20-60"]
+
+
 def test_word_count_bounds(tiny_repo):
     raw = valid_submission()
     for sc in raw["scenes"]:

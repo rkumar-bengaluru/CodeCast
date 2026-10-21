@@ -44,6 +44,7 @@ def load_director_prompt(limits: LimitsConfig | None = None) -> str:
     return Template(text).substitute(
         duration_min=f"{limits.duration_min_s:g}", duration_max=f"{limits.duration_max_s:g}",
         min_words=limits.min_words, max_words=limits.max_words,
+        min_scenes=limits.min_scenes, max_scenes=limits.max_scenes,
         aim_lo=max(limits.min_words, limits.target_words - AIM_SPREAD_WORDS),
         aim_hi=min(limits.max_words, limits.target_words + AIM_SPREAD_WORDS))
 
