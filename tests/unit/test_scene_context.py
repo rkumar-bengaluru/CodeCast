@@ -78,3 +78,49 @@ def test_table_cell_reads_yaml_source(tiny_repo):
     sb.scenes[3].rows[0][1].decimals = None
     _, table = scene_context(sb, 3, root)
     assert table["rows"][0][1] == {"text": "20.4", "num": True}
+
+
+def _html(sb, i, root):
+    name, ctx = scene_context(sb, i, root)
+    return _env.get_template(name).render(**ctx)
+
+
+def test_defaults_render_as_before(tiny_repo):
+    sb, root = sb_for(tiny_repo), Path(tiny_repo.root)
+    title, outro = _html(sb, 0, root), _html(sb, len(sb.scenes) - 1, root)
+    assert '<div class="kicker">Repository tour</div>' in title
+    assert f'<div class="url">{sb.repo_url}</div>' in title
+    assert f'<div class="url">{sb.repo_url}</div>' in outro
+
+
+def test_old_storyboard_json_still_loads(tiny_repo):
+    raw = sb_for(tiny_repo).model_dump(mode="json")
+    raw.pop("title_kicker")
+    raw.pop("show_url")
+    sb = Storyboard.model_validate(raw)
+    assert sb.title_kicker == "Repository tour" and sb.show_url is True
+
+
+def test_custom_kicker_and_no_link(tiny_repo):
+    sb = sb_for(tiny_repo).model_copy(update={"title_kicker": "Investor preview", "show_url": False})
+    root = Path(tiny_repo.root)
+    title, outro = _html(sb, 0, root), _html(sb, len(sb.scenes) - 1, root)
+    assert '<div class="kicker">Investor preview</div>' in title and "Repository tour" not in title
+    assert 'class="url"' not in title and 'class="url"' not in outro
+    assert sb.title in outro   # the outro's kicker (the video title) and cta stay
+
+
+def test_empty_kicker_hides_the_line(tiny_repo):
+    sb = sb_for(tiny_repo).model_copy(update={"title_kicker": ""})
+    assert 'class="kicker"' not in _html(sb, 0, Path(tiny_repo.root))
+
+
+def test_kicker_is_escaped(tiny_repo):
+    sb = sb_for(tiny_repo).model_copy(update={"title_kicker": "<b>&"})
+    assert "&lt;b&gt;&amp;" in _html(sb, 0, Path(tiny_repo.root))
+
+
+def test_llm_schema_unchanged():
+    from codecast.models import AgentSubmission
+    schema = str(AgentSubmission.model_json_schema())
+    assert "title_kicker" not in schema and "show_url" not in schema

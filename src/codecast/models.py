@@ -174,6 +174,8 @@ class Storyboard(_Strict):
     sources: dict[str, Source]
     scenes: list[Scene]
     llm: dict[str, str] = {}
+    title_kicker: str = "Repository tour"  # the title slides' top line; "" hides it
+    show_url: bool = True  # the repo link on title and outro slides
 
     def to_submission(self) -> dict:
         return {

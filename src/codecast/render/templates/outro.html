@@ -3,6 +3,6 @@
 <div class="stage center">
   <div class="kicker">{{ title }}</div>
   <div class="cta">{{ cta }}</div>
-  <div class="url">{{ repo_url }}</div>
+  {% if show_url %}<div class="url">{{ repo_url }}</div>{% endif %}
 </div>
 {% endblock %}
