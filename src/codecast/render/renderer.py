@@ -75,7 +75,8 @@ def scene_context(sb: Storyboard, index: int, repo_root: Path) -> tuple[str, dic
     sc = sb.scenes[index]
     base = {"static": STATIC_URL, "kicker": sb.title, "scene_number": index + 1, "scene_count": len(sb.scenes)}
     if isinstance(sc, TitleScene):
-        return "title.html", {**base, "heading": sc.heading, "subheading": sc.subheading, "repo_url": sb.repo_url}
+        return "title.html", {**base, "heading": sc.heading, "subheading": sc.subheading, "repo_url": sb.repo_url,
+                              "title_kicker": sb.title_kicker, "show_url": sb.show_url}
     if isinstance(sc, BulletsScene):
         return "bullets.html", {**base, "heading": sc.heading, "items": sc.items}
     if isinstance(sc, CodeScene):
@@ -98,7 +99,7 @@ def scene_context(sb: Storyboard, index: int, repo_root: Path) -> tuple[str, dic
         output = sb.sources[sc.output_span_id].text if sc.output_span_id else None
         return "terminal.html", {**base, "commands": commands, "output": output}
     if isinstance(sc, OutroScene):
-        return "outro.html", {**base, "repo_url": sc.repo_url, "cta": sc.cta, "title": sb.title}
+        return "outro.html", {**base, "repo_url": sc.repo_url, "cta": sc.cta, "title": sb.title, "show_url": sb.show_url}
     raise RenderError(f"unknown scene type {sc.type!r}")
 
 
