@@ -194,8 +194,6 @@ def structure_issues(sb: Storyboard, limits: LimitsConfig | None = None) -> list
     if not limits.min_scenes <= n <= limits.max_scenes:
         issues.append(Issue(path="scenes", code="SCENE_COUNT",
                             message=f"{n} scenes; need {limits.min_scenes}-{limits.max_scenes}"))
-    if n and sb.scenes[0].type != "title":
-        issues.append(Issue(path="scenes[0]", code="FIRST_SCENE", message="first scene must be 'title'"))
     if n and sb.scenes[-1].type != "outro":
         issues.append(Issue(path=f"scenes[{n - 1}]", code="LAST_SCENE", message="last scene must be 'outro'"))
     words = 0

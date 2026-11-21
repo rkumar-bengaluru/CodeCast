@@ -20,7 +20,15 @@ def codes(res):
 def test_scene_count_and_order(tiny_repo):
     raw = valid_submission()
     raw["scenes"] = raw["scenes"][1:4]
-    assert {"SCENE_COUNT", "FIRST_SCENE", "LAST_SCENE"} <= codes(run(tiny_repo, raw))
+    assert {"SCENE_COUNT", "LAST_SCENE"} <= codes(run(tiny_repo, raw))
+
+
+def test_first_scene_may_be_any_type(tiny_repo):
+    raw = valid_submission()
+    sc = raw["scenes"]
+    sc[0], sc[1] = sc[1], sc[0]  # opens on the picture; the title card comes second
+    assert sc[0]["type"] != "title"
+    assert not codes(run(tiny_repo, raw))
 
 
 @pytest.mark.parametrize("n_middle,ok", [(8, True), (9, False)])
