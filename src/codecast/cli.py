@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from codecast.config import apply_voice_flags, load_config, resolved_voice
+from codecast.config import apply_voice_flags, load_config
 from codecast.errors import CodecastError, ConfigError
 from codecast.pipeline import RunOptions
 from codecast.pipeline import run as pipeline_run
@@ -65,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
         load_env_file(Path(".env"))
         cfg = load_config(getattr(args, "config", None))
         apply_voice_flags(cfg, voice=getattr(args, "voice", None), voice_model=getattr(args, "voice_model", None))
-        resolved_voice(cfg.voice)  # a same-layer conflict (e.g. both env variables) is exit 7 here too
+        # (it also checks the choice: a same-layer conflict, e.g. both env variables, is exit 7 here too)
         if args.cmd == "doctor":
             checks = run_checks(cfg, require_key=False)
             for c in checks:

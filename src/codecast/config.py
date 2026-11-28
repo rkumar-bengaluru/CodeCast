@@ -75,6 +75,16 @@ class VoiceConfig(BaseModel):
     worker_sentence_timeout_s: float = 300
     envs_dir: str = "~/.cache/codecast/envs"
     worker_python: dict[str, str] = {}
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        # Assigning voice or model_path after load is the flag layer, and paths are made absolute when stored.
+        if name == "voice":
+            super().__setattr__("voice_source", "flag" if value else None)
+            value = absolute_voice(value) if value else value
+        elif name == "model_path":
+            super().__setattr__("model_path_source", "flag" if value else None)
+            value = _absolute(str(value)) if value else value
+        super().__setattr__(name, value)
     piper_voice: str = "en_US-lessac-medium"
     voices_dir: str = "~/.cache/codecast/voices"
     say_voice: str = "Samantha"
@@ -103,13 +113,18 @@ def _absolute(part: str) -> str:
     return str(p if p.is_absolute() else Path.cwd() / p)
 
 
+def absolute_voice(voice: str) -> str:
+    """Make the path of a path-like `piper:`/`model:` voice absolute (against the cwd now); others unchanged."""
+    engine, sep, part = voice.partition(":")
+    if sep and engine in ("piper", "model") and part and _looks_like_path(part):
+        return f"{engine}:{_absolute(part)}"
+    return voice
+
+
 def resolved_voice(vc: VoiceConfig) -> str | None:
     """The winning `<engine>:<voice>` (spec 5.1), or None when nothing names a voice (the probe picks)."""
-    # A model_path set directly on the object (no recorded source) counts as the flag layer.
-    mp_src = vc.model_path_source or ("flag" if vc.model_path else None)
-    v_src = vc.voice_source or ("flag" if vc.voice else None)
-    layers = [(src, kind) for kind, src, val in (("voice", v_src, vc.voice), ("model", mp_src, vc.model_path))
-              if val and src]
+    layers = [(src, kind) for kind, src, val in (("voice", vc.voice_source, vc.voice),
+                                                 ("model", vc.model_path_source, vc.model_path)) if val and src]
     if not layers:
         return None
     top = max(_STRENGTH[src] for src, _ in layers)
@@ -119,21 +134,19 @@ def resolved_voice(vc: VoiceConfig) -> str | None:
         a, b = _VOICE_NAMES[src]
         raise ConfigError(f"{a} and {b} both name a voice; set only one (two choices, neither silently wins)")
     if winners[0] == "model":
-        return f"piper:{_absolute(vc.model_path)}"
+        return f"piper:{vc.model_path}"
     engine, sep, part = vc.voice.partition(":")
     if not sep or not engine or not part:
         raise ConfigError(f"voice {vc.voice!r} must be <engine>:<voice>, e.g. say:Samantha")
-    if engine in ("piper", "model") and _looks_like_path(part):
-        part = _absolute(part)
-    return f"{engine}:{part}"
+    return vc.voice
 
 
 def apply_voice_flags(cfg: Config, *, voice: str | None, voice_model: str | None) -> None:
     """Set the flag layer (--voice, --voice-model), then check the choice (a same-layer conflict is a ConfigError)."""
     if voice:
-        cfg.voice.voice, cfg.voice.voice_source = voice, "flag"
+        cfg.voice.voice = voice
     if voice_model:
-        cfg.voice.model_path, cfg.voice.model_path_source = str(voice_model), "flag"
+        cfg.voice.model_path = str(voice_model)
     resolved_voice(cfg.voice)
 
 
@@ -209,6 +222,10 @@ def load_config(path: Path | None = None, *, env: Mapping[str, str] | None = Non
         if val:
             data["voice"][key] = val
             sources[key] = "env"
+    if data["voice"].get("voice"):
+        data["voice"]["voice"] = absolute_voice(str(data["voice"]["voice"]))
+    if data["voice"].get("model_path"):
+        data["voice"]["model_path"] = _absolute(str(data["voice"]["model_path"]))
     try:
         LimitsConfig.model_validate(data["limits"])
     except ValidationError as e:
@@ -219,6 +236,6 @@ def load_config(path: Path | None = None, *, env: Mapping[str, str] | None = Non
         cfg = Config.model_validate(data)
     except ValidationError as e:
         raise ConfigError(f"invalid configuration: {e}") from e
-    cfg.voice.voice_source = sources.get("voice")
+    cfg.voice.voice_source = sources.get("voice")  # after the values: assigning those would mark them "flag"
     cfg.voice.model_path_source = sources.get("model_path")
     return cfg

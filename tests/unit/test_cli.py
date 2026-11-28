@@ -1,3 +1,4 @@
+from pathlib import Path
 import pytest
 
 from codecast import cli
@@ -64,14 +65,14 @@ def test_voice_model_flag_beats_env(monkeypatch, tmp_path):
     seen = _capture_cfg(monkeypatch)
     monkeypatch.setenv("CODECAST_VOICE_MODEL", "from-env.onnx")
     cli.main(["run", "--repo", "x", "--out", str(tmp_path), "--voice-model", "flag.onnx"])
-    assert seen["cfg"].voice.model_path == "flag.onnx"
+    assert seen["cfg"].voice.model_path == str(Path.cwd() / "flag.onnx")
 
 
 def test_env_voice_used_without_flag(monkeypatch, tmp_path):
     seen = _capture_cfg(monkeypatch)
     monkeypatch.setenv("CODECAST_VOICE_MODEL", "from-env.onnx")
     cli.main(["run", "--repo", "x", "--out", str(tmp_path)])
-    assert seen["cfg"].voice.model_path == "from-env.onnx"
+    assert seen["cfg"].voice.model_path == str(Path.cwd() / "from-env.onnx")
 
 
 
@@ -149,14 +150,14 @@ def test_voice_and_voice_model_flags_conflict(monkeypatch, tmp_path, capsys):
     rc = cli.main(["run", "--repo", "x", "--out", str(tmp_path), "--voice", "say:Alex", "--voice-model", "a.onnx"])
     assert rc == 7
     err = capsys.readouterr()
-    assert "--voice" in err.err + err.out and "--voice-model" in err.err + err.out
+    assert "--voice and --voice-model" in err.err + err.out
 
 
 def test_conflict_rule_same_in_process_and_cli(monkeypatch):
     from codecast.config import load_config, resolved_voice
     from codecast.errors import ConfigError
     env = {"CODECAST_VOICE": "say:Alex", "CODECAST_VOICE_MODEL": "x.onnx"}
-    with pytest.raises(ConfigError):
+    with pytest.raises(ConfigError, match="CODECAST_VOICE.*CODECAST_VOICE_MODEL"):
         resolved_voice(load_config(None, env=env).voice)
     for k, v in env.items():
         monkeypatch.setenv(k, v)

@@ -72,7 +72,7 @@ def limit_overrides(env: Mapping[str, str] | None = None) -> dict[str, float | i
 
 def voice_model_from_env(env: Mapping[str, str] | None = None) -> str | None:
     env = os.environ if env is None else env
-    return env.get(VOICE_MODEL_VAR) or None
+    return (env.get(VOICE_MODEL_VAR) or "").strip() or None
 
 
 def voice_from_env(env: Mapping[str, str] | None = None) -> str | None:

@@ -1,3 +1,4 @@
+from pathlib import Path
 import os
 
 import pytest
@@ -31,7 +32,7 @@ def test_env_overrides_words_and_voice():
     cfg = load_config(env={"CODECAST_MAX_WORDS": "800", "CODECAST_TARGET_WORDS": "600",
                            "CODECAST_VOICE_MODEL": "voices/me.onnx"})
     assert (cfg.limits.max_words, cfg.limits.target_words) == (800, 600)
-    assert cfg.voice.model_path == "voices/me.onnx"
+    assert cfg.voice.model_path == str(Path.cwd() / "voices" / "me.onnx")
 
 
 @pytest.mark.parametrize("env, needle", [
