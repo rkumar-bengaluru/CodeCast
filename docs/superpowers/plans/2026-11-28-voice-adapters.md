@@ -313,7 +313,7 @@ gives exit 7 through `cli.main(["doctor"])`).
 ### Task 9: End to end on the GPU, and the version
 
 **Files:**
-- Modify: `pyproject.toml` (version `0.2.0`)
+- Modify: `pyproject.toml` (version `1.2.0`, following the v1.x tags)
 - Test: by hand
 
 - [ ] **Step 1:** `codecast voice-design ~/voices/hi-test.yaml --worker omnivoice --model k2-fsa/OmniVoice
@@ -322,4 +322,4 @@ gives exit 7 through `cli.main(["doctor"])`).
 - [ ] **Step 2:** `codecast run --repo <small repo> --voice model:~/voices/hi-test.yaml --from-stage voice --run
   <existing run>` (or `--compute-video-length`); expect the voice stage to start one worker, the report's
   `tts_worker` filled, and `nvidia-smi` showing no worker after it exits.
-- [ ] **Step 3:** Full suite `pytest -q`, lint as the repo does; commit `chore: 0.2.0` and push.
+- [ ] **Step 3:** Full suite `pytest -q`, lint as the repo does; commit `chore: 1.2.0` and push.

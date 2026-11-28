@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codecast"
-version = "0.2.0"
+version = "1.2.0"
 description = "Turn a GitHub repo into a grounded, under-60-second developer explainer video"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
