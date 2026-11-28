@@ -112,6 +112,13 @@ def test_voice_id_changes_with(tmp_path, workers, what):
     assert base != other
 
 
+def test_voice_id_ignores_worker_line_endings(tmp_path, workers):
+    a = _id(tmp_path / "a")
+    (workers / "omnivoice_worker.py").write_bytes(b"# worker v1\r\n")
+    (workers / "omnivoice.requirements.txt").write_bytes(b"torch==1\r\n")
+    assert _id(tmp_path / "b") == a
+
+
 def test_voice_id_ignores_options_order(tmp_path):
     a = _id(tmp_path / "a", BASE + "options: {x: 1, y: 2}\n")
     b = _id(tmp_path / "b", BASE + "options: {y: 2, x: 1}\n")

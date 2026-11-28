@@ -36,7 +36,7 @@ class Handler:
         model_id = voice.get("model") or "mlx-community/OmniVoice-bf16"
         _protocol.progress(f"loading {model_id}")
         self.model = load_model(model_id)
-        return {"worker": "mlx-audio", "model": model_id, "device": "mps",
+        return {"worker": "mlx-audio", "model": model_id, "device": "gpu",
                 "versions": {"mlx-audio": _version("mlx-audio"), "mlx": _version("mlx")}}
 
     def _seed(self, seed: int) -> None:
@@ -49,10 +49,10 @@ class Handler:
         kwargs = {**self.options, **extra}
         if self.language and "lang_code" not in kwargs:
             kwargs["lang_code"] = self.language
-        chunks, rate = [], 24000
+        chunks, rate = [], 24000 
         for result in self.model.generate(text=text, **kwargs):
-            chunks.append(np.asarray(result.audio, dtype=np.float32).reshape(-1))
-            rate = int(getattr(result, "sample_rate", rate))
+            chunks.append(np.array(result.audio.astype(mx.float32)).reshape(-1))
+            rate = int(getattr(result, "sample_rate", None) or self.model.sample_rate)
         if not chunks:
             raise RuntimeError("the model produced no audio")
         sf.write(out, np.concatenate(chunks), rate)

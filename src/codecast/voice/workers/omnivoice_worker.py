@@ -38,10 +38,14 @@ class Handler:
     def hello(self, voice: dict) -> dict:
         self.device = _device(voice.get("device") or "auto")
         self.options = dict(voice.get("options") or {})
+        self.language = voice.get("language")
+        if voice.get("reference") and not voice.get("reference_text"):
+            raise ValueError("reference_text is required with reference")
         model_id = voice.get("model") or "k2-fsa/OmniVoice"
         dtype = torch.float16 if self.device.startswith("cuda") else torch.float32
         _protocol.progress(f"loading {model_id} on {self.device}")
         self.model = OmniVoice.from_pretrained(model_id, device_map=self.device, dtype=dtype)
+        self.rate = int(getattr(self.model, "sampling_rate", None) or RATE)
         self.prompt = None
         if voice.get("reference"):
             self.prompt = self.model.create_voice_clone_prompt(ref_audio=str(voice["reference"]),
@@ -59,11 +63,13 @@ class Handler:
     def _write(self, audio, out: str) -> None:
         if hasattr(audio, "detach"):
             audio = audio.detach().float().cpu().numpy()
-        sf.write(out, np.asarray(audio, dtype=np.float32).reshape(-1), RATE)
+        sf.write(out, np.asarray(audio, dtype=np.float32).reshape(-1), self.rate)
 
     def synthesize(self, text: str, seed: int, out: str) -> None:
         self._seed(seed)
         kwargs = dict(self.options)
+        if self.language and "language" not in kwargs:
+            kwargs["language"] = self.language
         if self.prompt is not None:
             kwargs["voice_clone_prompt"] = self.prompt
         self._write(self.model.generate(text=text, **kwargs)[0], out)
@@ -73,6 +79,9 @@ class Handler:
         kwargs = {k: v for k, v in self.options.items() if k != "instruct"}
         if instruct:
             kwargs["instruct"] = instruct
+        language = language or self.language
+        if language and "language" not in kwargs:
+            kwargs["language"] = language
         self._write(self.model.generate(text=text, **kwargs)[0], out)
 
 

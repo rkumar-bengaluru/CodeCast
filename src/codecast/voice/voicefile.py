@@ -76,6 +76,11 @@ def sentence_seed(text: str) -> int:
     return int.from_bytes(digest[:8], "big")
 
 
+def _lf(data: bytes) -> bytes:
+    """CRLF as LF, so a Windows checkout with autocrlf hashes like the wheel and the Mac."""
+    return data.replace(b"\r\n", b"\n")
+
+
 def load_voice_file(path: Path, *, platform: str = sys.platform) -> ResolvedVoice:
     path = Path(path)
     try:
@@ -136,10 +141,10 @@ def load_voice_file(path: Path, *, platform: str = sys.platform) -> ResolvedVoic
         py = WORKERS_DIR / SHIPPED_WORKERS[worker]
         if not py.is_file():
             raise ConfigError(f"voice file {path}: worker file {py.name} is missing from {WORKERS_DIR}")
-        worker_bytes.append(py.read_bytes())
+        worker_bytes.append(_lf(py.read_bytes()))
         req = WORKERS_DIR / f"{worker}.requirements.txt"
         if req.is_file():
-            worker_bytes.append(req.read_bytes())
+            worker_bytes.append(_lf(req.read_bytes()))
 
     fields = _nfc(fields)
     worker, command = _nfc(worker), _nfc(command)

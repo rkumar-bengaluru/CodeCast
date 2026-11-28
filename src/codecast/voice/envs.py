@@ -14,7 +14,7 @@ from codecast.errors import CodecastError, ConfigError
 from codecast.voice import voicefile, worker
 from codecast.voice.model_engine import interpreter_for
 
-TORCH_PINS = ["torch==2.8.0", "torchaudio==2.8.0"]
+TORCH_VERSION = "2.8.0"
 TORCH_INDEXES = {"cu128": "https://download.pytorch.org/whl/cu128", "cpu": "https://download.pytorch.org/whl/cpu"}
 TORCH_WORKERS = {"omnivoice"}  # the shipped workers that run on PyTorch (mlx-audio's model runs on MLX)
 PYTHON = "3.12"
@@ -23,8 +23,8 @@ PYTHON = "3.12"
 def default_torch(runner=subprocess.run) -> str:
     """`cu128` when an NVIDIA driver answers, else `cpu`."""
     try:
-        r = runner(["nvidia-smi"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-    except OSError:
+        r = runner(["nvidia-smi"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
         return "cpu"
     return "cu128" if r.returncode == 0 else "cpu"
 
@@ -76,9 +76,14 @@ def create_env(name: str, cfg: VoiceConfig, *, torch: str | None, runner=subproc
             _step(runner, ["uv", "venv", "--python", PYTHON, str(env)])
         pip = ["uv", "pip", "install", "--python", str(interp)]
         if name in TORCH_WORKERS:
-            if sys.platform == "darwin":
-                _step(runner, [*pip, *TORCH_PINS])  # PyPI's Mac torch has MPS
+            if sys.platform == "darwin":  # PyPI's Mac torch has MPS
+                pins = [f"torch=={TORCH_VERSION}", f"torchaudio=={TORCH_VERSION}"]
+                _step(runner, [*pip, *pins])
             else:
-                _step(runner, [*pip, *TORCH_PINS, "--index-url", TORCH_INDEXES[torch or default_torch(runner)]])
+                build = torch or default_torch(runner)
+                # the local label matters: `==2.8.0` is also satisfied by `2.8.0+cpu`, so a switch would keep the old build
+                pins = [f"torch=={TORCH_VERSION}+{build}", f"torchaudio=={TORCH_VERSION}+{build}"]
+                _step(runner, [*pip, *pins, "--reinstall-package", "torch", "--reinstall-package", "torchaudio",
+                               "--index-url", TORCH_INDEXES[build]])
         _step(runner, [*pip, "-r", str(req)])
     return interp
