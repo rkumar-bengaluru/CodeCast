@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from codecast.errors import ConfigError
 
 WORKERS_DIR = Path(__file__).parent / "workers"
-SHIPPED_WORKERS = {"omnivoice": "omnivoice.py", "mlx-audio": "mlx_audio.py"}
+SHIPPED_WORKERS = {"omnivoice": "omnivoice_worker.py", "mlx-audio": "mlx_audio_worker.py"}
 PLATFORMS = ("darwin", "win32", "linux")
 OVERRIDABLE = ("worker", "command", "model", "device", "options")
 

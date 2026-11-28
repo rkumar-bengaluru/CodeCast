@@ -168,3 +168,31 @@ def test_progress_lines_carry_request_id(make):
         if "ok" in msg:
             break
     assert {"id": rid, "progress": "loading"} in seen
+
+
+def test_ignore_quit_worker_survives_quit_and_eof(make):
+    w = make({"ignore_quit": True})
+    w.hello()
+    assert w.reply(w.send("quit"))["ok"] is True
+    with pytest.raises(subprocess.TimeoutExpired):
+        w.p.wait(timeout=2)
+    w.p.stdin.close()
+    with pytest.raises(subprocess.TimeoutExpired):
+        w.p.wait(timeout=2)
+    w.p.kill()
+
+
+def test_malformed_line_gets_an_error_reply(make):
+    w = make()
+    w.p.stdin.write(b"this is not json\n")
+    w.p.stdin.flush()
+    msg = json.loads(w.q.get(timeout=T))
+    assert msg["id"] is None and msg["ok"] is False
+    assert w.hello()["ok"] is True  # and the worker still serves
+
+
+def test_protocol_must_be_the_integer_one(make):
+    w = make()
+    r = w.hello(protocol=True)
+    assert r["ok"] is False
+    assert w.p.wait(timeout=T) == 1

@@ -78,13 +78,14 @@ def serve(handler) -> None:
             if not isinstance(req, dict):
                 raise ValueError("request is not an object")
         except ValueError as e:
-            print(f"worker: ignoring bad request line: {e}", file=sys.stderr, flush=True)
+            print(f"worker: bad request line: {e}", file=sys.stderr, flush=True)
+            _send({"id": None, "ok": False, "error": f"bad request line: {e}"})
             continue
         _current_id = rid = req.get("id")
         op = req.get("op")
         try:
             if op == "hello":
-                if req.get("protocol") != PROTOCOL:
+                if type(req.get("protocol")) is not int or req["protocol"] != PROTOCOL:
                     _send({"id": rid, "ok": False, "error": f"protocol {req.get('protocol')!r} is not supported;"
                                                             f" this worker speaks protocol {PROTOCOL}"})
                     _exit(1)
@@ -102,8 +103,7 @@ def serve(handler) -> None:
                 _send({"id": rid, "ok": True})
             elif op == "quit":
                 _send({"id": rid, "ok": True})
-                if not getattr(handler, "ignore_quit", False):
-                    _exit(0)
+                _exit(0)
             else:
                 _send({"id": rid, "ok": False, "error": f"unknown op {op!r}"})
         except Exception as e:  # noqa: BLE001 - every handler failure is a reply; the worker keeps serving

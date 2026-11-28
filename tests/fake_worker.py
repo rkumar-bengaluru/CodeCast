@@ -30,15 +30,31 @@ def _write_wav(out: str) -> None:
         f.writeframes(frames)
 
 
+class _HungOs:
+    """`os` as the protocol sees it, where a clean exit never happens (quit and stdin EOF both hang)."""
+
+    def __getattr__(self, name):
+        return getattr(os, name)
+
+    @staticmethod
+    def _exit(code):
+        while code == 0:
+            time.sleep(60)
+        os._exit(code)
+
+
+def _hang() -> None:
+    """Model a hung worker that ignores both `quit` and stdin EOF."""
+    _protocol.os = _HungOs()
+
+
 class Handler:
     options: dict = {}
 
-    @property
-    def ignore_quit(self) -> bool:
-        return bool(self.options.get("ignore_quit"))
-
     def hello(self, voice: dict) -> dict:
         self.options = o = voice.get("options") or {}
+        if o.get("ignore_quit"):
+            _hang()
         if o.get("progress"):
             _protocol.progress(str(o["progress"]))
         if o.get("sleep_load"):

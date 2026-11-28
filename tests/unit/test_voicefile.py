@@ -17,7 +17,7 @@ from codecast.voice.voicefile import load_voice_file, sentence_seed
 def workers(tmp_path, monkeypatch):
     d = tmp_path / "_workers"
     d.mkdir()
-    (d / "omnivoice.py").write_bytes(b"# worker v1\n")
+    (d / "omnivoice_worker.py").write_bytes(b"# worker v1\n")
     (d / "omnivoice.requirements.txt").write_bytes(b"torch==1\n")
     monkeypatch.setattr(voicefile, "WORKERS_DIR", d)
     return d
@@ -104,7 +104,7 @@ def test_voice_id_changes_with(tmp_path, workers, what):
         other = _id(tmp_path / "b", body(extra="platforms:\n  linux: {device: cpu}\n"), platform="linux")
         base = _id(tmp_path / "a", body(), platform="linux")
     elif what == "worker_py":
-        (workers / "omnivoice.py").write_bytes(b"# worker v2\n")
+        (workers / "omnivoice_worker.py").write_bytes(b"# worker v2\n")
         other = _id(tmp_path / "b", body())
     else:
         (workers / "omnivoice.requirements.txt").write_bytes(b"torch==2\n")
@@ -153,8 +153,8 @@ def test_missing_reference_is_config_error(tmp_path):
 def test_unknown_worker_and_missing_py(tmp_path, workers):
     with pytest.raises(ConfigError):
         load_voice_file(_write(tmp_path, "worker: nope\n"))
-    (workers / "omnivoice.py").unlink()
-    with pytest.raises(ConfigError, match="omnivoice.py"):
+    (workers / "omnivoice_worker.py").unlink()
+    with pytest.raises(ConfigError, match="omnivoice_worker.py"):
         load_voice_file(_write(tmp_path, "worker: omnivoice\n"))
 
 
@@ -180,3 +180,12 @@ def test_unknown_platform_key_rejected(tmp_path):
 def test_options_must_be_json(tmp_path, opts):
     with pytest.raises(ConfigError, match="JSON"):
         load_voice_file(_write(tmp_path, f"worker: omnivoice\noptions: {opts}\n"))
+
+
+def test_shipped_worker_files_do_not_shadow_their_model_package():
+    from codecast.voice.voicefile import SHIPPED_WORKERS
+
+    for name, filename in SHIPPED_WORKERS.items():
+        stem = filename.removesuffix(".py")
+        assert stem != name.replace("-", "_"), filename
+        assert stem not in {"omnivoice", "mlx_audio"}, filename
