@@ -1,7 +1,7 @@
 """A fake voice worker for tests: speaks the protocol, writes a 0.5 s 24 kHz sine per sentence.
 
 Behaviour switches come from the voice's `options`: progress, sleep_load, sleep_synth, crash_on (sentence text),
-stdout_noise, stderr_flood (bytes), ignore_quit, fail_design, spawn_child (path that gets the grandchild's pid).
+stdout_noise, stderr_flood (bytes), ignore_quit, fail_design, fail_design_after_write, spawn_child (path that gets the grandchild's pid).
 """
 from __future__ import annotations
 
@@ -84,6 +84,8 @@ class Handler:
         if self.options.get("fail_design"):
             raise NotImplementedError("fake worker cannot design")
         _write_wav(out)
+        if self.options.get("fail_design_after_write"):
+            raise RuntimeError("fake worker fails after writing the clip")
 
 
 if __name__ == "__main__":

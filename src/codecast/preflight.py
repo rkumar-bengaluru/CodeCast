@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 import sys
 import time
@@ -49,9 +48,8 @@ def _developer_mode_on() -> bool:
 def _model_voice_checks(cfg: Config, named: str, *, deep: bool) -> list[Check]:
     """What a `model:` voice will run, whether it can drift, and (deep) whether its worker starts."""
     from codecast.errors import CodecastError
-    from codecast.voice.model_engine import lock_dir, worker_argv
+    from codecast.voice.model_engine import new_worker, worker_argv
     from codecast.voice.voicefile import load_voice_file
-    from codecast.voice.worker import Worker
     try:
         voice = load_voice_file(Path(named.partition(":")[2]).expanduser())
         argv = worker_argv(voice, cfg.voice)
@@ -68,10 +66,7 @@ def _model_voice_checks(cfg: Config, named: str, *, deep: bool) -> list[Check]:
                             "linking them (more disk)", "Settings > System > For developers > Developer Mode",
                             False))
     if deep:
-        w = Worker(argv, start_timeout_s=cfg.voice.worker_start_timeout_s,
-                   sentence_timeout_s=cfg.voice.worker_sentence_timeout_s,
-                   lock_device=None if voice.device == "cpu" else voice.device, lock_dir=lock_dir(cfg.voice),
-                   log=logging.getLogger("codecast.voice.worker"))
+        w = new_worker(voice, cfg.voice)
         t0 = time.monotonic()
         try:
             ready = w.start(voice.to_hello())

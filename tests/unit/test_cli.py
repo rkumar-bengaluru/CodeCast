@@ -7,12 +7,12 @@ from codecast import cli
 
 def test_doctor_exit_codes(monkeypatch, capsys):
     from codecast.preflight import Check
-    monkeypatch.setattr(cli, "run_checks", lambda cfg, require_key, allow_network_tts=False, deep=False:
+    monkeypatch.setattr(cli, "run_checks", lambda cfg, require_key, allow_network_tts=False, **kw:
                         [Check("ffmpeg", True, "ok", None, True), Check("llm api key", False, "unset", "export it", False)])
     assert cli.main(["doctor"]) == 0
     out = capsys.readouterr().out
     assert "WARN" in out and "llm api key" in out
-    monkeypatch.setattr(cli, "run_checks", lambda cfg, require_key, allow_network_tts=False, deep=False:
+    monkeypatch.setattr(cli, "run_checks", lambda cfg, require_key, allow_network_tts=False, **kw:
                         [Check("ffmpeg", False, "missing", "brew install ffmpeg", True)])
     assert cli.main(["doctor"]) == 7
 

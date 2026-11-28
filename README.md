@@ -71,7 +71,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install -e '.[dev]'
 
 **Your own voice:** `codecast run ... --voice-model voices/my-voice.onnx` (or `CODECAST_VOICE_MODEL`) uses a custom piper voice; its `.onnx.json` must sit next to it. A missing file is an error, never a silent fallback. `codecast doctor --voice-model ...` checks it.
 
-**Voices:** the default is piper, then `say`, then edge-tts. Name one with `--voice <engine>:<voice>` (`piper`, `say`, `edge-tts`, `model`), `CODECAST_VOICE`, or `voice.voice` in the config; the flag beats the environment beats the config, and a named voice never falls back. A `model:` voice is a small YAML file that a long-lived worker process voices with a neural model:
+**Voices:** the default is piper, then `say`, then edge-tts. Name one with `--voice <engine>:<voice>` (`piper`, `say`, `edge-tts`, `model`), `CODECAST_VOICE`, or `voice.voice` in the config; the flag beats the environment beats the config, and a named voice never falls back (`edge-tts:` still needs `--allow-network-tts`). A `model:` voice is a small YAML file that a long-lived worker process voices with a neural model:
 
 ```yaml
 # voices/hindi.yaml
@@ -79,16 +79,16 @@ worker: omnivoice            # or `command: [python, "{voice_dir}/my_worker.py"]
 model: k2-fsa/OmniVoice
 language: hi
 device: auto
-reference: hindi.wav         # a clip of the voice; with reference_text it keeps every sentence in one voice
-reference_text: "Namaste, main aapka margdarshan karungi."
+reference: hindi.wav         # a clip of the voice; reference_text must be exactly what it says
+reference_text: "नमस्ते, मैं इस श्रृंखला में आपका मार्गदर्शन करूँगी।"
 options: {num_step: 16}
 ```
 
 - `codecast voice-env omnivoice` builds the shipped worker's own environment with `uv` (`--torch cpu|cu128`).
-- `codecast voice-design voices/hindi.yaml --worker omnivoice --model k2-fsa/OmniVoice --language hi --instruct "female, low pitch, indian accent" --text "..." --option num_step=16` invents a voice and writes both the clip and the voice file (`--force` to overwrite); it prints the `voice_id`.
+- `codecast voice-design voices/hindi.yaml --worker omnivoice --model k2-fsa/OmniVoice --language hi --instruct "female, low pitch, indian accent" --text "..." --option num_step=16` invents a voice and writes both the clip and the voice file (`--force` to overwrite; `--seed N`, default derived from `--text`); it prints the `voice_id`.
 - `codecast doctor --voice model:voices/hindi.yaml --deep` prints the command the voice will run, warns when it has no reference clip, and starts the worker once (this downloads the weights the first time).
 - **Security:** a voice file can name a `command:`, and the voice can come from a `.env`, so whoever writes either can run a program, the same trust `.env` already gets. Read a voice file before using it.
-- On a laptop, use the high-performance power mode: the model is slow on a throttled GPU. One model worker runs at a time (a GPU lock), so a second run waits for the first.
+- On a laptop, use the high-performance power mode: the model is slow on a throttled GPU. On Windows, turn Developer Mode on so the Hugging Face cache links files instead of copying them (the doctor warns). One model worker runs at a time on any device but `cpu` (a GPU lock), so a second run waits for the first.
 - A voice's `voice_id` hashes its settings, clip and shipped worker, not a custom `command:` worker's script: change its `command` or `options` to re-voice after editing the script.
 
 **Measure before you spend:** `codecast run --run <run_id> --compute-video-length [--voice-model ...]` speaks that run's `storyboard.json` locally and prints per-scene seconds, the total and whether it is inside the limits (saved as `length_estimate.json` in the run's workspace). It never calls the LLM, so it costs no tokens; the total is the same timeline length the final ffprobe check measures.

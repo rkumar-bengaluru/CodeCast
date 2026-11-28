@@ -31,8 +31,28 @@ def worker_argv(voice: ResolvedVoice, cfg: VoiceConfig) -> list[str]:
     return [str(interpreter_for(voice.worker, cfg)), str(voicefile.WORKERS_DIR / voicefile.SHIPPED_WORKERS[voice.worker])]
 
 
+def interpreter_problem(voice: ResolvedVoice, cfg: VoiceConfig) -> str | None:
+    """Why a voice's worker cannot start (unknown worker, no environment), without starting it."""
+    if voice.command is not None:
+        return None
+    if voice.worker not in voicefile.SHIPPED_WORKERS:
+        return f"unknown worker {voice.worker!r}; shipped: {', '.join(voicefile.SHIPPED_WORKERS)}"
+    py = interpreter_for(voice.worker, cfg)
+    if not py.is_file():
+        return (f"worker {voice.worker!r}: interpreter not found at {py}; run `codecast voice-env {voice.worker}`"
+                f" or set voice.worker_python.{voice.worker}")
+    return None
+
+
 def lock_dir(cfg: VoiceConfig) -> Path:
     return Path(cfg.envs_dir).expanduser() / "locks"
+
+
+def new_worker(voice: ResolvedVoice, cfg: VoiceConfig) -> Worker:
+    """A not-yet-started worker for `voice` (Worker itself takes no GPU lock for cpu)."""
+    return Worker(worker_argv(voice, cfg), start_timeout_s=cfg.worker_start_timeout_s,
+                  sentence_timeout_s=cfg.worker_sentence_timeout_s, lock_device=voice.device,
+                  lock_dir=lock_dir(cfg), log=log)
 
 
 class ModelEngine:
@@ -47,11 +67,7 @@ class ModelEngine:
 
     def _started(self) -> Worker:
         if self._worker is None:
-            self._worker = Worker(worker_argv(self.voice, self.cfg),
-                                  start_timeout_s=self.cfg.worker_start_timeout_s,
-                                  sentence_timeout_s=self.cfg.worker_sentence_timeout_s,
-                                  lock_device=None if self.voice.device == "cpu" else self.voice.device,
-                                  lock_dir=lock_dir(self.cfg), log=log)
+            self._worker = new_worker(self.voice, self.cfg)
             self.ready = self._worker.start(self.voice.to_hello())
             log.info("voice worker ready: %s", self.ready)
         return self._worker
@@ -101,11 +117,7 @@ class _ModelKind:
             if not _program_exists(voice.command[0]):
                 return f"voice file {voice.path}: command program {voice.command[0]!r} not found"
             return "ok"
-        py = interpreter_for(voice.worker, cfg)
-        if not py.is_file():
-            return (f"worker {voice.worker!r}: interpreter not found at {py}; run `codecast voice-env {voice.worker}`"
-                    f" or set voice.worker_python.{voice.worker}")
-        return "ok"
+        return interpreter_problem(voice, cfg) or "ok"
 
     def create(self, voice_part: str, cfg: VoiceConfig) -> TTSEngine:
         return ModelEngine(load_voice_file(Path(voice_part).expanduser()), cfg)

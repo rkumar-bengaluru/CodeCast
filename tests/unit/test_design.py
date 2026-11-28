@@ -101,3 +101,42 @@ def test_doctor_warns_voice_without_reference(monkeypatch, tmp_path):
     _quiet(monkeypatch)
     c = _by_name(preflight.run_checks(_cfg_for(_voice_file(tmp_path)), require_key=False))["voice reference"]
     assert not c.ok and not c.fatal
+
+
+def test_failed_design_after_write_leaves_nothing(tmp_path):
+    with pytest.raises(CodecastError):
+        _design(tmp_path, options={"fail_design_after_write": True})
+    assert list((tmp_path / "voices").iterdir()) == []
+
+
+def test_failed_redesign_with_force_keeps_old_voice(tmp_path):
+    _design(tmp_path)
+    folder = tmp_path / "voices"
+    before = {n: (folder / n).read_bytes() for n in ("v.yaml", "v.wav")}
+    with pytest.raises(CodecastError):
+        _design(tmp_path, force=True, options={"fail_design_after_write": True})
+    assert {n: (folder / n).read_bytes() for n in ("v.yaml", "v.wav")} == before
+    assert sorted(p.name for p in folder.iterdir()) == ["v.wav", "v.yaml"]
+
+
+def _design_cli(tmp_path, worker, capsys):
+    from codecast import cli
+    argv = ["voice-design", str(tmp_path / "new" / "v.yaml"), "--worker", worker, "--model", "m", "--language", "hi",
+            "--instruct", "x", "--text", "t"]
+    code = cli.main(argv)
+    return code, capsys.readouterr().err
+
+
+def test_cli_unknown_worker_is_config_error(tmp_path, capsys):
+    code, err = _design_cli(tmp_path, "foo", capsys)
+    assert code == 7 and "unknown worker 'foo'" in err and "omnivoice" in err
+    assert not (tmp_path / "new").exists()
+
+
+def test_cli_missing_environment_is_config_error(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("CODECAST_VOICE_ENVS_DIR", str(tmp_path / "noenvs"))
+    from codecast.voice import model_engine
+    monkeypatch.setattr(model_engine, "interpreter_for", lambda worker, cfg: tmp_path / "nope" / "python.exe")
+    code, err = _design_cli(tmp_path, "omnivoice", capsys)
+    assert code == 7 and "codecast voice-env omnivoice" in err
+    assert not (tmp_path / "new").exists()
