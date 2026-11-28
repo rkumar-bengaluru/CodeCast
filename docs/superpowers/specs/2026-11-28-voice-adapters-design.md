@@ -162,7 +162,9 @@ platforms:                    # optional: per-platform overrides of worker, mode
 (`sort_keys`, NFC-normalised strings) of the voice **after** the platform overrides are applied: worker name (or the
 `command` argv), `model`, `language`, `device` as given, `options`, `reference_text`, the **bytes** of the reference
 clip, and, for a shipped worker, the bytes of its `<name>.py` and `<name>.requirements.txt`. So a changed clip,
-setting or a CodeCast upgrade that changes the worker is a new voice; renaming or moving the voice file is not. The
+setting or a CodeCast upgrade that changes the worker is a new voice; moving the voice file is not (its stem is part of the
+id, so a rename changes it). A `command:` voice's own script is not hashed; to re-voice after changing it, change its argv
+or options. The
 model library's own version inside an environment the user upgraded by hand is not in the key; the run report records
 it (5.4).
 
