@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from codecast.config import load_config
+from codecast.config import apply_voice_flags, load_config, resolved_voice
 from codecast.errors import CodecastError, ConfigError
 from codecast.pipeline import RunOptions
 from codecast.pipeline import run as pipeline_run
@@ -30,11 +30,14 @@ def _parser() -> argparse.ArgumentParser:
     r.add_argument("--compute-video-length", action="store_true",
                    help="speak the storyboard of --run <id> and print the video length; no LLM, no tokens, no video")
     r.add_argument("--verbose", action="store_true", help="print progress; run.log in the workspace always has it")
+    r.add_argument("--voice", help="name the voice as <engine>:<voice> (piper, say, edge-tts, model); "
+                   "default: CODECAST_VOICE, else voice.voice, else the first engine that works")
     r.add_argument("--voice-model", type=Path, help="custom piper voice .onnx (its .onnx.json must sit next to it); "
                    "default: CODECAST_VOICE_MODEL, else the configured piper voice")
     d = sub.add_parser("doctor", help="check the local setup")
     d.add_argument("--config", type=Path)
     d.add_argument("--voice-model", type=Path, help="check this custom piper voice")
+    d.add_argument("--voice", help="check this voice, <engine>:<voice>")
     f = sub.add_parser("fetch-voice", help="download the piper voice")
     f.add_argument("--config", type=Path)
     e = sub.add_parser("eval", help="evaluate a generated output directory")
@@ -61,8 +64,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         load_env_file(Path(".env"))
         cfg = load_config(getattr(args, "config", None))
-        if getattr(args, "voice_model", None):
-            cfg.voice.model_path = str(args.voice_model)  # the flag beats CODECAST_VOICE_MODEL
+        apply_voice_flags(cfg, voice=getattr(args, "voice", None), voice_model=getattr(args, "voice_model", None))
+        resolved_voice(cfg.voice)  # a same-layer conflict (e.g. both env variables) is exit 7 here too
         if args.cmd == "doctor":
             checks = run_checks(cfg, require_key=False)
             for c in checks:

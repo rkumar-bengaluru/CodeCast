@@ -20,6 +20,7 @@ LIMIT_VARS: dict[str, tuple[str, type]] = {
     "max_scenes": ("CODECAST_MAX_SCENES", int),
 }
 VOICE_MODEL_VAR = "CODECAST_VOICE_MODEL"
+VOICE_VAR = "CODECAST_VOICE"
 
 _LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$")
 
@@ -72,3 +73,8 @@ def limit_overrides(env: Mapping[str, str] | None = None) -> dict[str, float | i
 def voice_model_from_env(env: Mapping[str, str] | None = None) -> str | None:
     env = os.environ if env is None else env
     return env.get(VOICE_MODEL_VAR) or None
+
+
+def voice_from_env(env: Mapping[str, str] | None = None) -> str | None:
+    env = os.environ if env is None else env
+    return (env.get(VOICE_VAR) or "").strip() or None

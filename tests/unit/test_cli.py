@@ -134,3 +134,30 @@ def test_real_failure_prints_no_traceback(monkeypatch, tmp_path, capsys):
     assert code == 7 and "Traceback" not in err
     assert err.startswith("codecast FAILED (exit 7) at stage preflight")
     assert "Traceback" in (ws / "r1" / "run.log").read_text(encoding="utf-8")
+
+
+def test_voice_flag_beats_env(monkeypatch, tmp_path):
+    from codecast.config import resolved_voice
+    seen = _capture_cfg(monkeypatch)
+    monkeypatch.setenv("CODECAST_VOICE", "say:Bob")
+    cli.main(["run", "--repo", "x", "--out", str(tmp_path), "--voice", "say:Alex"])
+    assert resolved_voice(seen["cfg"].voice) == "say:Alex"
+
+
+def test_voice_and_voice_model_flags_conflict(monkeypatch, tmp_path, capsys):
+    _capture_cfg(monkeypatch)
+    rc = cli.main(["run", "--repo", "x", "--out", str(tmp_path), "--voice", "say:Alex", "--voice-model", "a.onnx"])
+    assert rc == 7
+    err = capsys.readouterr()
+    assert "--voice" in err.err + err.out and "--voice-model" in err.err + err.out
+
+
+def test_conflict_rule_same_in_process_and_cli(monkeypatch):
+    from codecast.config import load_config, resolved_voice
+    from codecast.errors import ConfigError
+    env = {"CODECAST_VOICE": "say:Alex", "CODECAST_VOICE_MODEL": "x.onnx"}
+    with pytest.raises(ConfigError):
+        resolved_voice(load_config(None, env=env).voice)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    assert cli.main(["doctor"]) == 7

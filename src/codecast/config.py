@@ -5,13 +5,13 @@ from __future__ import annotations
 from importlib import resources
 from pathlib import Path
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ValidationError, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from codecast.errors import ConfigError
-from codecast.settings import limit_overrides, voice_model_from_env
+from codecast.settings import limit_overrides, voice_from_env, voice_model_from_env
 
 KNOWN_PROVIDERS = ("anthropic", "openai")
 DEFAULT_KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
@@ -62,8 +62,19 @@ class LimitsConfig(BaseModel):
         return (self.duration_min_s, self.duration_max_s)
 
 
+Source = Literal["flag", "env", "config"]
+_STRENGTH = {"flag": 3, "env": 2, "config": 1}
+
+
 class VoiceConfig(BaseModel):
+    voice: str | None = None  # "<engine>:<voice>"; see resolved_voice
     model_path: str | None = None  # a custom piper .onnx; overrides piper_voice + voices_dir when set
+    voice_source: Source | None = Field(default=None, exclude=True)
+    model_path_source: Source | None = Field(default=None, exclude=True)
+    worker_start_timeout_s: float = 1800
+    worker_sentence_timeout_s: float = 300
+    envs_dir: str = "~/.cache/codecast/envs"
+    worker_python: dict[str, str] = {}
     piper_voice: str = "en_US-lessac-medium"
     voices_dir: str = "~/.cache/codecast/voices"
     say_voice: str = "Samantha"
@@ -74,6 +85,56 @@ class VoiceConfig(BaseModel):
     @property
     def voices_path(self) -> Path:
         return Path(self.voices_dir).expanduser()
+
+
+_VOICE_NAMES = {
+    "flag": ("--voice", "--voice-model"),
+    "env": ("CODECAST_VOICE", "CODECAST_VOICE_MODEL"),
+    "config": ("voice.voice", "voice.model_path"),
+}
+
+
+def _looks_like_path(part: str) -> bool:
+    return "/" in part or "\\" in part or part.lower().endswith((".onnx", ".yaml", ".yml"))
+
+
+def _absolute(part: str) -> str:
+    p = Path(part).expanduser()
+    return str(p if p.is_absolute() else Path.cwd() / p)
+
+
+def resolved_voice(vc: VoiceConfig) -> str | None:
+    """The winning `<engine>:<voice>` (spec 5.1), or None when nothing names a voice (the probe picks)."""
+    # A model_path set directly on the object (no recorded source) counts as the flag layer.
+    mp_src = vc.model_path_source or ("flag" if vc.model_path else None)
+    v_src = vc.voice_source or ("flag" if vc.voice else None)
+    layers = [(src, kind) for kind, src, val in (("voice", v_src, vc.voice), ("model", mp_src, vc.model_path))
+              if val and src]
+    if not layers:
+        return None
+    top = max(_STRENGTH[src] for src, _ in layers)
+    winners = [kind for src, kind in layers if _STRENGTH[src] == top]
+    src = next(s for s, _ in layers if _STRENGTH[s] == top)
+    if len(winners) > 1:
+        a, b = _VOICE_NAMES[src]
+        raise ConfigError(f"{a} and {b} both name a voice; set only one (two choices, neither silently wins)")
+    if winners[0] == "model":
+        return f"piper:{_absolute(vc.model_path)}"
+    engine, sep, part = vc.voice.partition(":")
+    if not sep or not engine or not part:
+        raise ConfigError(f"voice {vc.voice!r} must be <engine>:<voice>, e.g. say:Samantha")
+    if engine in ("piper", "model") and _looks_like_path(part):
+        part = _absolute(part)
+    return f"{engine}:{part}"
+
+
+def apply_voice_flags(cfg: Config, *, voice: str | None, voice_model: str | None) -> None:
+    """Set the flag layer (--voice, --voice-model), then check the choice (a same-layer conflict is a ConfigError)."""
+    if voice:
+        cfg.voice.voice, cfg.voice.voice_source = voice, "flag"
+    if voice_model:
+        cfg.voice.model_path, cfg.voice.model_path_source = str(voice_model), "flag"
+    resolved_voice(cfg.voice)
 
 
 class RenderConfig(BaseModel):
@@ -142,9 +203,12 @@ def load_config(path: Path | None = None, *, env: Mapping[str, str] | None = Non
         raise ConfigError("llm.extended_thinking is incompatible with forced tool_choice in Phase A")
 
     data["limits"] = {**(data.get("limits") or {}), **limit_overrides(env)}
-    voice_model = voice_model_from_env(env)
-    if voice_model:
-        data["voice"]["model_path"] = voice_model
+    user_voice = user.get("voice") or {}
+    sources: dict[str, str] = {k: "config" for k in ("voice", "model_path") if user_voice.get(k)}
+    for key, val in (("voice", voice_from_env(env)), ("model_path", voice_model_from_env(env))):
+        if val:
+            data["voice"][key] = val
+            sources[key] = "env"
     try:
         LimitsConfig.model_validate(data["limits"])
     except ValidationError as e:
@@ -152,6 +216,9 @@ def load_config(path: Path | None = None, *, env: Mapping[str, str] | None = Non
         raise ConfigError(f"invalid limits: {msg} (from limits: in the config file or the CODECAST_* "
                           f"variables in the environment / .env)") from e
     try:
-        return Config.model_validate(data)
+        cfg = Config.model_validate(data)
     except ValidationError as e:
         raise ConfigError(f"invalid configuration: {e}") from e
+    cfg.voice.voice_source = sources.get("voice")
+    cfg.voice.model_path_source = sources.get("model_path")
+    return cfg
