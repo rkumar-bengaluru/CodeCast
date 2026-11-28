@@ -16,6 +16,7 @@ from codecast.errors import ConfigError
 
 WORKERS_DIR = Path(__file__).parent / "workers"
 SHIPPED_WORKERS = {"omnivoice": "omnivoice.py", "mlx-audio": "mlx_audio.py"}
+PLATFORMS = ("darwin", "win32", "linux")
 OVERRIDABLE = ("worker", "command", "model", "device", "options")
 
 
@@ -90,6 +91,11 @@ def load_voice_file(path: Path, *, platform: str = sys.platform) -> ResolvedVoic
     except ValidationError as e:
         raise ConfigError(f"voice file {path}: {e}") from e
 
+    unknown = sorted(set(vf.platforms) - set(PLATFORMS))
+    if unknown:
+        raise ConfigError(
+            f"voice file {path}: unknown platforms key(s) {', '.join(map(str, unknown))}; use {', '.join(PLATFORMS)}"
+        )
     fields = vf.model_dump()
     override = vf.platforms.get(platform)
     if override is not None:
@@ -135,8 +141,10 @@ def load_voice_file(path: Path, *, platform: str = sys.platform) -> ResolvedVoic
         if req.is_file():
             worker_bytes.append(req.read_bytes())
 
-    canonical = json.dumps(
-        _nfc(
+    fields = _nfc(fields)
+    worker, command = _nfc(worker), _nfc(command)
+    try:
+        canonical = json.dumps(
             {
                 "worker": worker,
                 "command": command,
@@ -145,12 +153,13 @@ def load_voice_file(path: Path, *, platform: str = sys.platform) -> ResolvedVoic
                 "device": fields["device"],
                 "options": fields["options"],
                 "reference_text": fields["reference_text"],
-            }
-        ),
-        sort_keys=True,
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
+            },
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+    except TypeError as e:
+        raise ConfigError(f"voice file {path}: options must be JSON values ({e})") from e
     h = hashlib.sha256()
     for part in (canonical.encode("utf-8"), clip, *worker_bytes):
         h.update(part)

@@ -121,9 +121,12 @@ def test_voice_id_ignores_options_order(tmp_path):
 def test_voice_id_nfc(tmp_path):
     nfc = unicodedata.normalize("NFC", "é")
     nfd = unicodedata.normalize("NFD", "é")
-    a = _id(tmp_path / "a", BASE.replace("hello", nfc))
-    b = _id(tmp_path / "b", BASE.replace("hello", nfd))
-    assert a == b
+    body = BASE + "options: {k: %s}\n"
+    a = load_voice_file(_write(tmp_path / "a", body.replace("hello", nfc) % nfc))
+    b = load_voice_file(_write(tmp_path / "b", body.replace("hello", nfd) % nfd))
+    assert a.voice_id == b.voice_id
+    assert b.reference_text == nfc and b.options == {"k": nfc}
+    assert b.to_hello()["reference_text"] == nfc
 
 
 def test_voice_id_format(tmp_path):
@@ -166,3 +169,14 @@ def test_sentence_seed_deterministic_and_nfc():
     assert sentence_seed("é") == sentence_seed(unicodedata.normalize("NFD", "é"))
     assert sentence_seed("a") == int.from_bytes(hashlib.sha256(b"a").digest()[:8], "big")
     assert sentence_seed("a") != sentence_seed("b")
+
+
+def test_unknown_platform_key_rejected(tmp_path):
+    with pytest.raises(ConfigError, match="windows"):
+        load_voice_file(_write(tmp_path, "worker: omnivoice\nplatforms:\n  windows: {model: x}\n"))
+
+
+@pytest.mark.parametrize("opts", ["{when: 2026-01-01}", "{1: a, b: c}"])
+def test_options_must_be_json(tmp_path, opts):
+    with pytest.raises(ConfigError, match="JSON"):
+        load_voice_file(_write(tmp_path, f"worker: omnivoice\noptions: {opts}\n"))
