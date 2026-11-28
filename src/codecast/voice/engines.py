@@ -143,9 +143,27 @@ def engine_status(cfg: VoiceConfig, *, allow_network: bool) -> dict[str, str]:
         status["edge-tts"] = "edge-tts not installed"
     else:
         status["edge-tts"] = "ok" if allow_network else "disabled (needs --allow-network-tts)"
-    model = registry.kinds().get("model")
-    status["model"] = model.status("", cfg, allow_network=allow_network) if model else "model engine not available"
+    model = _model_status(cfg, allow_network=allow_network)
+    if model is not None:  # only when a model voice is named: the probe's message stays as it was (R3)
+        status["model"] = model
     return status
+
+
+def _model_status(cfg: VoiceConfig, *, allow_network: bool) -> str | None:
+    """The named `model:` voice's status, None when no model voice is named; never raises."""
+    try:
+        named = resolved_voice(cfg)
+    except ConfigError as e:
+        return e.message if (cfg.voice or "").startswith("model:") else None
+    if named is None or not named.startswith("model:"):
+        return None
+    kind = registry.kinds().get("model")
+    if kind is None:
+        return "model engine not available"
+    try:
+        return kind.status(named.partition(":")[2], cfg, allow_network=allow_network)
+    except CodecastError as e:
+        return e.message
 
 
 class _PiperKind:

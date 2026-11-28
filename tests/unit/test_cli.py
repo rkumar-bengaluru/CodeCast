@@ -149,8 +149,9 @@ def test_voice_and_voice_model_flags_conflict(monkeypatch, tmp_path, capsys):
     _capture_cfg(monkeypatch)
     rc = cli.main(["run", "--repo", "x", "--out", str(tmp_path), "--voice", "say:Alex", "--voice-model", "a.onnx"])
     assert rc == 7
-    err = capsys.readouterr()
-    assert "--voice and --voice-model" in err.err + err.out
+    captured = capsys.readouterr()
+    assert captured.err == ("codecast: --voice and --voice-model both name a voice; set only one (two choices, "
+                            "neither silently wins)\n") and captured.out == ""
 
 
 def test_conflict_rule_same_in_process_and_cli(monkeypatch):

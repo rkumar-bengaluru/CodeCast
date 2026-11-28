@@ -134,3 +134,19 @@ def test_paths_absolute_from_load_on(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert resolved_voice(cfg.voice) == f"model:{first.resolve() / 'voices' / 'hi.yaml'}" or \
         resolved_voice(cfg.voice) == f"model:{Path(first) / 'voices' / 'hi.yaml'}"
+
+
+def test_voice_given_at_construction_is_the_config_layer():
+    """VoiceConfig(...), model_validate and a dump read back keep the named voice (never silently the probe)."""
+    from codecast.config import Config, VoiceConfig, resolved_voice
+    assert resolved_voice(VoiceConfig(voice="model:/v/x.yaml")) == "model:/v/x.yaml"
+    assert resolved_voice(VoiceConfig(model_path="/v/m.onnx")) == "piper:/v/m.onnx"
+    data = load_config(None, env={}).model_dump()
+    data["voice"]["voice"] = "say:Alex"
+    cfg = Config.model_validate(data)
+    assert resolved_voice(cfg.voice) == "say:Alex" and cfg.voice.voice_source == "config"
+    loaded = load_config(None, env={"CODECAST_VOICE": "say:Bob"})
+    assert loaded.voice.voice_source == "env"  # load_config records the real layer
+    again = Config.model_validate(loaded.model_dump())
+    assert resolved_voice(again.voice) == "say:Bob"
+    assert VoiceConfig().voice_source is None and resolved_voice(VoiceConfig()) is None

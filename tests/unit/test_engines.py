@@ -198,9 +198,33 @@ def test_named_voice_never_falls_back(monkeypatch, tmp_path):
         select_engine(c, allow_network=False)
 
 
-def test_builtin_engines_close_is_a_noop_and_status_has_model(tmp_path):
+def test_builtin_engines_close_is_a_noop_and_status_has_no_model_unnamed(tmp_path):
     assert SayEngine("x").close() is None
-    assert "model" in engines.engine_status(cfg(tmp_path), allow_network=False)
+    assert "model" not in engines.engine_status(cfg(tmp_path), allow_network=False)
+
+
+def test_probe_failure_message_word_for_word(monkeypatch, tmp_path):
+    """R3: with no model voice named, the probe's message is today's, with the three built-in engines only."""
+    monkeypatch.setattr(engines, "_piper_installed", lambda: False)
+    monkeypatch.setattr(engines, "_say_available", lambda voice: False)
+    monkeypatch.setattr(engines, "_edge_installed", lambda: False)
+    with pytest.raises(ConfigError) as e:
+        select_engine(cfg(tmp_path), allow_network=False)
+    st = {"piper": "piper-tts not installed", "say": "macOS say or voice 'Samantha' unavailable",
+          "edge-tts": "edge-tts not installed"}
+    assert e.value.message == ("no TTS engine available: run `codecast fetch-voice` (piper), use macOS `say`, "
+                               f"or pass --allow-network-tts with edge-tts installed. Status: {st}")
+
+
+def test_engine_status_reports_named_model_voice_and_never_raises(tmp_path):
+    c = cfg(tmp_path)
+    c.voice = f"model:{tmp_path / 'missing.yaml'}"
+    assert "missing.yaml" in engines.engine_status(c, allow_network=False)["model"]
+    c.voice = "say:Alex"
+    assert "model" not in engines.engine_status(c, allow_network=False)
+    clash = VoiceConfig(voices_dir=str(tmp_path), voice=f"model:{tmp_path / 'v.yaml'}", model_path="x.onnx")
+    st = engines.engine_status(clash, allow_network=False)  # a same-layer conflict: a status, not a raise
+    assert "both name a voice" in st["model"]
 
 
 # --- model_path keeps today's messages through the real config path (R3) --------------------------------------------

@@ -248,6 +248,8 @@ def test_model_kind_registered_and_status(tmp_path):
     bad.write_text(yaml.safe_dump({"command": ["no-such-program-xyz"]}), encoding="utf-8")
     assert "no-such-program-xyz" in kind.status(str(bad), c, allow_network=False)
     assert "not" in kind.status(str(tmp_path / "missing.yaml"), c, allow_network=False)
+    assert "model" not in engines.engine_status(c, allow_network=False)  # no model voice named
+    c.voice = f"model:{good}"
     assert engines.engine_status(c, allow_network=False)["model"] == "ok"
 
 

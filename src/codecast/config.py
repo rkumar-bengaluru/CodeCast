@@ -87,6 +87,16 @@ class VoiceConfig(BaseModel):
     def voices_path(self) -> Path:
         return Path(self.voices_dir).expanduser()
 
+    @model_validator(mode="after")
+    def _record_sources(self) -> VoiceConfig:
+        # A voice given at construction (VoiceConfig(voice=...), model_validate, a dump read back) is the config
+        # layer, never silently the probe; load_config then records the real layer.
+        if self.voice and self.voice_source is None:
+            object.__setattr__(self, "voice_source", "config")
+        if self.model_path and self.model_path_source is None:
+            object.__setattr__(self, "model_path_source", "config")
+        return self
+
     def __setattr__(self, name: str, value: Any) -> None:
         # Assigning voice or model_path after load is the flag layer, and paths are made absolute when stored.
         if name == "voice":

@@ -7,7 +7,7 @@ import sys
 import unicodedata
 from pathlib import Path
 
-from codecast.config import VoiceConfig, resolved_voice
+from codecast.config import VoiceConfig
 from codecast.errors import CodecastError, ConfigError
 from codecast.voice import registry, voicefile
 from codecast.voice.engines import TTSEngine, convert_to_wav48k
@@ -104,11 +104,6 @@ class _ModelKind:
 
     def status(self, voice_part: str, cfg: VoiceConfig, *, allow_network: bool) -> str:
         """Without starting the worker (spec 5.7): the file parses, its reference and its program exist."""
-        if not voice_part:
-            named = resolved_voice(cfg)
-            if named is None or not named.startswith("model:"):
-                return "ok"
-            voice_part = named.partition(":")[2]
         try:
             voice = load_voice_file(Path(voice_part).expanduser())
         except ConfigError as e:
