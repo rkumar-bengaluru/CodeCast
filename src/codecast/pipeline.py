@@ -87,6 +87,7 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
     current = "preflight"
     lo, hi = cfg.limits.duration_range
     detach = lambda: None  # noqa: E731 - replaced once the workspace exists
+    own_engine = None  # the engine this run created: it closes it, never one passed in
     try:
         if opts.from_stage and opts.from_stage not in STAGES[2:]:
             raise ConfigError(f"--from-stage must be one of {STAGES[2:]}")
@@ -105,7 +106,7 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
             if problems:
                 raise ConfigError("preflight failed: " + "; ".join(problems))
         if engine is None:
-            engine = select_engine(cfg.voice, allow_network=opts.allow_network_tts)
+            engine = own_engine = select_engine(cfg.voice, allow_network=opts.allow_network_tts)
         rep.tts_engine = engine.name
         rep.tts_voice = getattr(engine, "voice_id", None)
         log.info("tts: %s voice %s", rep.tts_engine, rep.tts_voice)
@@ -225,7 +226,11 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
         shutil.rmtree(out_root / name / f".staging-{run_id}", ignore_errors=True)
         return final
     finally:
-        detach()
+        try:
+            if own_engine is not None:
+                own_engine.close()
+        finally:
+            detach()
 
 
 def _carry_forward(rep: RunReport, path: Path, kept_stages: tuple[str, ...]) -> None:

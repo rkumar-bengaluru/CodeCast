@@ -13,6 +13,7 @@ from typing import Protocol
 
 from codecast.config import VoiceConfig
 from codecast.errors import CodecastError, ConfigError
+from codecast.voice import registry
 
 
 class TTSEngine(Protocol):
@@ -20,6 +21,8 @@ class TTSEngine(Protocol):
     voice_id: str  # which voice within the engine; part of the audio cache key
 
     def synthesize(self, text: str, out_wav: Path) -> None: ...
+
+    def close(self) -> None: ...
 
 
 def convert_to_wav48k(src: Path, dst: Path) -> None:
@@ -52,6 +55,9 @@ class SayEngine:
                            check=True, capture_output=True, timeout=120)
             convert_to_wav48k(aiff, out_wav)
 
+    def close(self) -> None:
+        pass
+
 
 class PiperEngine:
     name = "piper"
@@ -69,6 +75,9 @@ class PiperEngine:
                 synth(text, wf)
             convert_to_wav48k(raw, out_wav)
 
+    def close(self) -> None:
+        pass
+
 
 class EdgeEngine:
     name = "edge-tts"
@@ -83,6 +92,9 @@ class EdgeEngine:
             subprocess.run([sys.executable, "-m", "edge_tts", "--voice", self.voice, "--file", str(txt),
                             "--write-media", str(mp3)], check=True, capture_output=True, timeout=120)
             convert_to_wav48k(mp3, out_wav)
+
+    def close(self) -> None:
+        pass
 
 
 def _piper_installed() -> bool:
@@ -106,8 +118,8 @@ def piper_model_path(cfg: VoiceConfig) -> Path:
     return cfg.voices_path / f"{cfg.piper_voice}.onnx"
 
 
-def _custom_voice_problem(cfg: VoiceConfig) -> str | None:
-    model = piper_model_path(cfg)
+def _custom_voice_problem(cfg: VoiceConfig, model: Path | None = None) -> str | None:
+    model = model or piper_model_path(cfg)
     if not model.is_file():
         return f"custom voice not found: {model}"
     sidecar = model.with_name(model.name + ".json")
@@ -131,10 +143,90 @@ def engine_status(cfg: VoiceConfig, *, allow_network: bool) -> dict[str, str]:
         status["edge-tts"] = "edge-tts not installed"
     else:
         status["edge-tts"] = "ok" if allow_network else "disabled (needs --allow-network-tts)"
+    model = registry.kinds().get("model")
+    status["model"] = model.status("", cfg, allow_network=allow_network) if model else "model engine not available"
     return status
 
 
+class _PiperKind:
+    name = "piper"
+
+    @staticmethod
+    def _path(voice_part: str, cfg: VoiceConfig) -> Path:
+        if "/" in voice_part or "\\" in voice_part or voice_part.endswith(".onnx"):
+            return Path(voice_part).expanduser()
+        return cfg.voices_path / f"{voice_part}.onnx"
+
+    def status(self, voice_part: str, cfg: VoiceConfig, *, allow_network: bool) -> str:
+        if not _piper_installed():
+            return "piper-tts not installed"
+        model = self._path(voice_part, cfg)
+        if model == Path(voice_part).expanduser():
+            return _custom_voice_problem(cfg, model) or "ok"
+        if not model.is_file():  # a voice under voices_dir, as today's default: no sidecar check
+            return f"voice {voice_part!r} not found in {cfg.voices_path}; run `codecast fetch-voice` or give a path"
+        return "ok"
+
+    def create(self, voice_part: str, cfg: VoiceConfig) -> TTSEngine:
+        return PiperEngine(self._path(voice_part, cfg))
+
+
+class _SayKind:
+    name = "say"
+
+    def status(self, voice_part: str, cfg: VoiceConfig, *, allow_network: bool) -> str:
+        return "ok" if _say_available(voice_part) else f"macOS say or voice {voice_part!r} unavailable"
+
+    def create(self, voice_part: str, cfg: VoiceConfig) -> TTSEngine:
+        return SayEngine(voice_part)
+
+
+class _EdgeKind:
+    name = "edge-tts"
+
+    def status(self, voice_part: str, cfg: VoiceConfig, *, allow_network: bool) -> str:
+        if not _edge_installed():
+            return "edge-tts not installed"
+        return "ok" if allow_network else "disabled (needs --allow-network-tts)"
+
+    def create(self, voice_part: str, cfg: VoiceConfig) -> TTSEngine:
+        return EdgeEngine(voice_part)
+
+
+for _kind in (_PiperKind(), _SayKind(), _EdgeKind()):
+    registry.register(_kind)
+
+
+def named_kind(voice: str) -> tuple[registry.EngineKind | None, str, str]:
+    """Split `<engine>:<voice>` -> (kind or None if unregistered, engine name, voice part)."""
+    engine, _, part = voice.partition(":")
+    return registry.kinds().get(engine), engine, part
+
+
+def named_problem(voice: str, cfg: VoiceConfig, *, allow_network: bool) -> str | None:
+    """None when the named voice can be made; else why not (never a fallback)."""
+    kind, engine, part = named_kind(voice)
+    if kind is None:
+        if engine in registry.KNOWN_NAMES:
+            return f"{engine} engine not available"
+        return f"unknown engine {engine!r}: choose one of {', '.join(registry.KNOWN_NAMES)}"
+    st = kind.status(part, cfg, allow_network=allow_network)
+    return None if st == "ok" else f"{engine}:{part}: {st}"
+
+
 def select_engine(cfg: VoiceConfig, *, allow_network: bool) -> TTSEngine:
+    from codecast.config import resolved_voice
+    named = resolved_voice(cfg)
+    if named is not None:
+        problem = named_problem(named, cfg, allow_network=allow_network)
+        if problem and cfg.model_path and named == f"piper:{cfg.model_path}":
+            # --voice-model / CODECAST_VOICE_MODEL keep their message word for word (R3)
+            raise ConfigError(f"{problem.removeprefix(f'piper:{cfg.model_path}: ')} "
+                              "(from --voice-model or CODECAST_VOICE_MODEL)")
+        if problem:
+            raise ConfigError(problem)
+        kind, _, part = named_kind(named)
+        return kind.create(part, cfg)
     st = engine_status(cfg, allow_network=allow_network)
     if cfg.model_path and st["piper"] != "ok":
         # An explicitly chosen voice never silently falls back to another one.

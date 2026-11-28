@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from codecast.compose.ffmpeg import ffmpeg_problems
-from codecast.config import Config
-from codecast.voice.engines import engine_status, piper_model_path
+from codecast.config import Config, resolved_voice
+from codecast.voice.engines import engine_status, named_kind, named_problem, piper_model_path
 
 
 @dataclass
@@ -38,7 +39,15 @@ def run_checks(cfg: Config, *, require_key: bool, allow_network_tts: bool = Fals
     checks.append(Check("chromium", chrome is None, chrome or "headless Chromium starts",
                         ".venv/bin/python -m playwright install chromium" if chrome else None, True))
     st = engine_status(cfg.voice, allow_network=allow_network_tts)
-    if cfg.voice.model_path and st["piper"] != "ok":
+    named = resolved_voice(cfg.voice)
+    if named is not None:
+        problem = named_problem(named, cfg.voice, allow_network=allow_network_tts)
+        _, engine, part = named_kind(named)
+        shown = Path(part).stem if engine == "piper" else part
+        checks.append(Check("tts", problem is None, f"engine: {engine} ({shown})" if problem is None else problem,
+                            None if problem is None else "fix the voice named by --voice, --voice-model, CODECAST_VOICE, CODECAST_VOICE_MODEL or config",
+                            True))
+    elif cfg.voice.model_path and st["piper"] != "ok":
         checks.append(Check("tts", False, st["piper"], "fix the path given by --voice-model or CODECAST_VOICE_MODEL",
                             True))
     else:

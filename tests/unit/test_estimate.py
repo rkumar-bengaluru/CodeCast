@@ -55,3 +55,13 @@ def test_format_lists_scenes_and_verdict(tmp_path):
     assert text.splitlines()[0] == "video length for run run1 (silence voice silence):"
     assert "  scene 1  title" in text
     assert f"total {est.total_s:.1f} s, 130 spoken words: within the 50–300 s limit" in text
+
+
+def test_estimate_closes_its_engine(tmp_path, monkeypatch):
+    write_storyboard(tmp_path / "run1")
+    given, made = SilenceEngine(0.4), SilenceEngine(0.4)
+    estimate_length(tmp_path / "run1", load_config(env={}), engine=given)
+    assert given.closed == 0  # not ours to close
+    monkeypatch.setattr("codecast.estimate.select_engine", lambda *a, **k: made)
+    estimate_length(tmp_path / "run1", load_config(env={}))
+    assert made.closed == 1

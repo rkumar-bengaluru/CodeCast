@@ -136,3 +136,68 @@ def test_custom_voice_without_json_says_so(monkeypatch, tmp_path):
 def test_say_and_edge_voice_ids():
     assert SayEngine("Samantha").voice_id == "Samantha"
     assert engines.EdgeEngine("en-US-AriaNeural").voice_id == "en-US-AriaNeural"
+
+
+# --- named voices and the registry (spec 5.2) ---------------------------------------------------------------------
+
+def named(tmp_path, voice):
+    c = cfg(tmp_path)
+    c.voice = voice  # assignment is the flag layer
+    return c
+
+
+def test_named_piper_by_name_and_path(monkeypatch, tmp_path):
+    import piper
+    monkeypatch.setattr(engines, "_piper_installed", lambda: True)
+    monkeypatch.setattr(piper.PiperVoice, "load", staticmethod(lambda path: object()))
+    c = cfg(tmp_path)
+    (tmp_path / "voices").mkdir()
+    (tmp_path / "voices" / "amy.onnx").write_bytes(b"x")
+    c.voice, c.model_path = "piper:amy", None
+    assert select_engine(c, allow_network=False).voice_id == "amy"
+    m = custom(tmp_path)
+    c2 = cfg(tmp_path)
+    c2.voice = f"piper:{m}"
+    assert select_engine(c2, allow_network=False).voice_id == "me"
+    c3 = cfg(tmp_path)
+    c3.voice = "piper:ghost"
+    with pytest.raises(ConfigError, match="ghost"):
+        select_engine(c3, allow_network=False)
+
+
+def test_named_say_voice(monkeypatch, tmp_path):
+    monkeypatch.setattr(engines, "_say_available", lambda voice: voice == "Alex")
+    c = cfg(tmp_path)
+    c.voice = "say:Alex"
+    eng = select_engine(c, allow_network=False)
+    assert (eng.name, eng.voice_id) == ("say", "Alex")
+
+
+def test_named_edge_needs_network(monkeypatch, tmp_path):
+    monkeypatch.setattr(engines, "_edge_installed", lambda: True)
+    c = cfg(tmp_path)
+    c.voice = "edge-tts:en-GB-SoniaNeural"
+    with pytest.raises(ConfigError, match="--allow-network-tts"):
+        select_engine(c, allow_network=False)
+    assert select_engine(c, allow_network=True).voice_id == "en-GB-SoniaNeural"
+
+
+def test_unknown_engine(tmp_path):
+    c = cfg(tmp_path)
+    c.voice = "bogus:x"
+    with pytest.raises(ConfigError, match=r"piper, say, edge-tts, model"):
+        select_engine(c, allow_network=False)
+
+
+def test_named_voice_never_falls_back(monkeypatch, tmp_path):
+    monkeypatch.setattr(engines, "_piper_installed", lambda: True)
+    monkeypatch.setattr(engines, "_say_available", lambda v: True)
+    c = cfg(tmp_path)
+    c.voice = "piper:missing"
+    with pytest.raises(ConfigError):
+        select_engine(c, allow_network=False)
+
+
+def test_builtin_engines_close_is_a_noop_and_status_has_model(tmp_path):
+    assert SayEngine("x").close() is None
+    assert "model" in engines.engine_status(cfg(tmp_path), allow_network=False)

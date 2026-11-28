@@ -33,10 +33,15 @@ def estimate_length(ws: Path, cfg: Config, *, engine: TTSEngine | None = None,
     if not path.is_file():
         raise ConfigError(f"no storyboard.json in {ws}; --compute-video-length measures the script of an existing run")
     sb = Storyboard.model_validate_json(path.read_text(encoding="utf-8"))
-    engine = engine or select_engine(cfg.voice, allow_network=allow_network)
-    # Own cache folder; the per-voice cache key makes a repeat measurement with the same voice instant.
-    timeline = synthesize_storyboard(sb, engine, ws / "audio" / "estimate", gap_s=cfg.voice.gap_s,
-                                     tail_s=cfg.voice.tail_s)
+    own = None if engine else select_engine(cfg.voice, allow_network=allow_network)
+    engine = engine or own
+    try:
+        # Own cache folder; the per-voice cache key makes a repeat measurement with the same voice instant.
+        timeline = synthesize_storyboard(sb, engine, ws / "audio" / "estimate", gap_s=cfg.voice.gap_s,
+                                         tail_s=cfg.voice.tail_s)
+    finally:
+        if own is not None:
+            own.close()
     lo, hi = cfg.limits.duration_range
     est = LengthEstimate(
         run_id=ws.name, engine=engine.name, voice=getattr(engine, "voice_id", ""),

@@ -43,3 +43,16 @@ def test_missing_custom_voice_is_fatal_even_if_say_works(monkeypatch, tmp_path):
     tts = {c.name: c for c in preflight.run_checks(cfg, require_key=False)}["tts"]
     assert not tts.ok and tts.fatal and "custom voice not found" in tts.message
     assert "--voice-model" in tts.fix
+
+
+def test_named_voice_is_reported_and_fatal_on_its_status(monkeypatch, tmp_path):
+    from codecast.voice import engines
+    monkeypatch.setattr(preflight, "ffmpeg_problems", lambda: [])
+    monkeypatch.setattr(preflight, "_chromium_problem", lambda: None)
+    monkeypatch.setattr(engines, "_say_available", lambda v: v == "Alex")
+    cfg = load_config(env={"CODECAST_VOICE": "say:Alex"})
+    tts = {c.name: c for c in preflight.run_checks(cfg, require_key=False)}["tts"]
+    assert tts.ok and tts.message == "engine: say (Alex)"
+    cfg = load_config(env={"CODECAST_VOICE": "say:Nobody"})
+    tts = {c.name: c for c in preflight.run_checks(cfg, require_key=False)}["tts"]
+    assert not tts.ok and tts.fatal and "Nobody" in tts.message
