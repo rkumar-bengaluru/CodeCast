@@ -66,15 +66,15 @@ before tagging `v1.2.0`. Tick each item and note what you saw.
 
 ## Results (2026-11-28, M-series Mac, macOS 26.6, arm64)
 
-- Unit suite: 633 passed, 1 skipped (Job Objects, Windows only), 1 failed. Two Mac failures were test bugs, fixed on
+- Unit suite: 634 passed, 1 skipped (Job Objects, Windows only). Two Mac failures were test bugs, fixed on
   `fix/mac-voice-adapters`:
   - `test_doctor_warns_developer_mode_off` faked `sys.platform = "win32"` globally, which breaks `shutil.which` on
     POSIX. It now stubs the `say` probe.
   - `test_duration_loop_revises_then_succeeds` predates round-to-round audio reuse (`f315e2c`). Unchanged sentences
     kept their slow round0 audio, so the run stayed at ~91 s. The revision now changes every sentence. This is not
     Mac-specific. The test needs ffmpeg, so it never ran on Windows.
-- Still failing, not voice-related: `test_run_yaml_shape`. `run.yaml` is a copy of `run_win.yaml`, but the test
-  expects the POSIX form (`run_mac.yaml`).
+- `test_run_yaml_shape` also failed: `run.yaml` was a copy of `run_win.yaml`, but the test expects the POSIX form.
+  `run.yaml` is now `run_mac.yaml`.
 - OmniVoice: torch 2.8.0 and torchaudio come from PyPI, and omnivoice 0.2.1 keeps torch. MPS is available. The GPU
   test passes in 231 s, including the identical-samples-for-the-same-seed check.
 - mlx-audio: 0.6.8 exists, with mlx 0.32.5. It loads `mlx-community/OmniVoice-bf16` with no extra. The GPU test
