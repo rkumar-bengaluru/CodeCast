@@ -45,8 +45,9 @@ codecast = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-m 'not live'"
+addopts = "-m 'not live and not gpu'"
 markers = [
   "live: needs a real LLM API key and network; excluded by default",
   "integration: needs ffmpeg, Playwright Chromium and macOS say",
+  "gpu: runs a real voice worker (omnivoice, mlx-audio) on its model; excluded by default",
 ]

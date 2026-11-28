@@ -81,6 +81,7 @@ class RunReport(BaseModel):
     limits: LimitsConfig | None = None  # absent in reports written before limits were configurable
     tts_engine: str | None = None
     tts_voice: str | None = None
+    tts_worker: dict | None = None  # the model engine's `ready` reply (worker, model, device, versions)
     stage_seconds: dict[str, float] = Field(default_factory=dict)
     video: VideoInfo | None = None
 

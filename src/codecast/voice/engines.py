@@ -196,6 +196,8 @@ class _EdgeKind:
 for _kind in (_PiperKind(), _SayKind(), _EdgeKind()):
     registry.register(_kind)
 
+from codecast.voice import model_engine as _model_engine  # noqa: E402,F401 - registers the `model` kind
+
 
 def named_kind(voice: str) -> tuple[registry.EngineKind | None, str, str]:
     """Split `<engine>:<voice>` -> (kind or None if unregistered, engine name, voice part)."""

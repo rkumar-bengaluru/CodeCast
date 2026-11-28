@@ -7,6 +7,8 @@ import logging
 import shutil
 import uuid
 from collections import Counter
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -154,7 +156,7 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
             # [3] voice (+ duration loop)
             current = "voice"
             if resume_at <= 2:
-                with rb.stage("voice"):
+                with rb.stage("voice"), _record_worker(rep, engine):
                     round_no = 0
                     timeline = synthesize_storyboard(sb, engine, ws / "audio" / f"round{round_no}",
                                                      gap_s=cfg.voice.gap_s, tail_s=cfg.voice.tail_s)
@@ -231,6 +233,15 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
                 own_engine.close()
         finally:
             detach()
+
+
+@contextmanager
+def _record_worker(rep: RunReport, engine) -> Iterator[None]:
+    """After voicing (also when it fails), record the model engine's `ready` reply; None for the built-ins."""
+    try:
+        yield
+    finally:
+        rep.tts_worker = getattr(engine, "ready", None)
 
 
 def _carry_forward(rep: RunReport, path: Path, kept_stages: tuple[str, ...]) -> None:
