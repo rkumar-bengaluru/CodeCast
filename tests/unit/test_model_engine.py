@@ -169,7 +169,8 @@ def test_cuda_oom_hint(tmp_path):
     finally:
         e.close()
     assert "CUDA out of memory" in err.value.message and "another CodeCast run" in err.value.message
-    assert not (tmp_path / "envs" / "locks" / "gpu.lock").exists()  # released on close
+    from codecast.voice import worker as worker_mod
+    assert not worker_mod._HELD  # released on close
 
 
 def test_seed_is_sent(tmp_path, monkeypatch):

@@ -81,8 +81,6 @@ if sys.platform == "win32":
     _k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     _k32.GetExitCodeProcess.restype = wintypes.BOOL
     _k32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
-    _k32.GetProcessTimes.restype = wintypes.BOOL
-    _k32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
     _ntdll.NtResumeProcess.restype = ctypes.c_long
     _ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
 
@@ -116,34 +114,8 @@ if sys.platform == "win32":
             return bool(_k32.GetExitCodeProcess(h, ctypes.byref(code))) and code.value == _STILL_ACTIVE
         finally:
             _k32.CloseHandle(h)
-
-    def _start_time(pid: int) -> str | None:
-        """The process's creation time (FILETIME ticks), or None when it cannot be read."""
-        h = _k32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-        if not h:
-            return None
-        try:
-            times = [wintypes.FILETIME() for _ in range(4)]
-            if not _k32.GetProcessTimes(h, *(ctypes.byref(t) for t in times)):
-                return None
-            return str(times[0].dwHighDateTime << 32 | times[0].dwLowDateTime)
-        finally:
-            _k32.CloseHandle(h)
 else:
     import signal
-
-    def _start_time(pid: int) -> str | None:
-        """The process's start time (Linux: /proc stat field 22; elsewhere `ps -o lstart=`), or None."""
-        try:
-            stat = Path(f"/proc/{pid}/stat").read_text()
-            return stat.rpartition(")")[2].split()[19]
-        except (OSError, IndexError):
-            pass
-        try:
-            out = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, timeout=5)
-        except (OSError, subprocess.SubprocessError):
-            return None
-        return " ".join(out.stdout.split()) or None
 
     def _pid_alive(pid: int) -> bool:
         try:
@@ -155,39 +127,46 @@ else:
         return True
 
 
-def _lock_text(pid: int) -> str:
-    """A lock file's contents: the holder's pid and, when it can be read, its start time (against pid reuse)."""
-    started = _start_time(pid)
-    return f"{pid}\n{started}\n" if started else f"{pid}\n"
+if sys.platform == "win32":
+    import msvcrt
 
-
-def _read_lock(path: Path) -> bytes | None:
-    try:
-        return path.read_bytes()
-    except OSError:
-        return None
-
-
-def _parse_lock(raw: bytes) -> tuple[int, str | None] | None:
-    """(pid, start time or None); None when the contents are not a lock (empty, partly written, pid <= 0)."""
-    lines = raw.decode("ascii", errors="replace").splitlines()
-    try:
-        pid = int(lines[0].strip())
-    except (IndexError, ValueError):
-        return None
-    if pid <= 0:
-        return None
-    started = lines[1].strip() if len(lines) > 1 and lines[1].strip() else None
-    return pid, started
-
-
-def _holder_gone(pid: int, started: str | None) -> bool:
-    if not _pid_alive(pid):
+    def _try_lock(fd: int) -> bool:
+        os.lseek(fd, 0, os.SEEK_SET)
+        try:
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)  # byte 0; Windows byte locks are mandatory, so the pid starts at 1
+        except OSError:
+            return False
         return True
-    if started is None:
-        return False
-    now = _start_time(pid)
-    return now is not None and now != started  # the pid was reused by another process
+
+    def _unlock(fd: int) -> None:
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+else:
+    import fcntl
+
+    def _try_lock(fd: int) -> bool:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return False
+        return True
+
+    def _unlock(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+
+
+_HELD: set[str] = set()  # GPU lock files held by this process
+_HELD_MUTEX = threading.Lock()
+
+
+def _lock_holder(path: Path) -> int | None:
+    """The pid the holder wrote after byte 0 (best effort, only for the wait message)."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(1)
+            return int(f.read(32).strip() or b"x")
+    except (OSError, ValueError):
+        return None
 
 
 # --- the client ---------------------------------------------------------------------------------------------------------
@@ -209,7 +188,7 @@ class Worker:
         self._stderr: deque[str] = deque(maxlen=STDERR_KEEP)
         self._threads: list[threading.Thread] = []
         self._lock_path: Path | None = None
-        self._lock_bytes = b""
+        self._lock_fd: int | None = None
         self._next_id = 0
         self._dead = False  # killed or exited: never restarted
         self._closed = False
@@ -430,84 +409,66 @@ class Worker:
     # -- the GPU lock --------------------------------------------------------------------------------------------------
 
     def _acquire_lock(self) -> None:
+        """Hold an OS lock on `<lock_dir>/gpu.lock` for the worker's life; the OS frees it if this process dies."""
         if not self.lock_device or self.lock_device == "cpu":
             return
         self.lock_dir.mkdir(parents=True, exist_ok=True)
         path = self.lock_dir / "gpu.lock"  # R2: one lock for every GPU device
+        key = str(path.resolve())
+        with _HELD_MUTEX:
+            if key in _HELD:
+                raise CodecastError(f"an engine in this process still holds the GPU voice lock {path}; close it "
+                                    "first", stage="voice")
+            _HELD.add(key)  # reserved while we wait, so a second engine here fails at once too
+        try:
+            try:
+                fd = os.open(path, os.O_RDWR | os.O_CREAT | getattr(os, "O_BINARY", 0), 0o644)
+            except OSError as e:
+                raise CodecastError(f"cannot create the GPU voice lock {path}: {e}", stage="voice") from e
+            try:
+                self._wait_for_lock(fd, path)
+                data = f"\n{os.getpid()}\n".encode("ascii")  # byte 0 is the locked one; the pid follows it
+                os.lseek(fd, 0, os.SEEK_SET)
+                os.write(fd, data)
+                os.ftruncate(fd, len(data))
+            except BaseException:
+                os.close(fd)
+                raise
+        except BaseException:
+            with _HELD_MUTEX:
+                _HELD.discard(key)
+            raise
+        self._lock_path, self._lock_fd = path, fd
+
+    def _wait_for_lock(self, fd: int, path: Path) -> None:
         deadline = time.monotonic() + self.start_timeout_s
         announced = object()
-        mine = _lock_text(os.getpid()).encode("ascii")
-        while True:
-            try:
-                fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0), 0o644)
-            except (FileExistsError, PermissionError) as e:
-                if isinstance(e, PermissionError) and not path.exists():
-                    raise CodecastError(f"cannot create the GPU voice lock {path}: {e}", stage="voice") from e
-                raw = _read_lock(path)
-                if raw is None:  # removed meanwhile, or held open by its writer: look again
-                    time.sleep(0.05)
-                    continue
-                parsed = _parse_lock(raw)
-                holder = parsed[0] if parsed else None
-                if parsed is None:
-                    try:  # garbage, or empty for 10 s (its writer died between create and write)
-                        stale = raw.strip() != b"" or time.time() - path.stat().st_mtime > 10
-                    except OSError:
-                        stale = False
-                else:
-                    stale = _holder_gone(*parsed)
-                if stale:
-                    self.log.info("voice worker: removing the stale GPU voice lock %s (pid %s is gone)", path, holder)
-                    self._remove_stale(path, raw)
-                    continue
-                if holder == os.getpid():
-                    raise CodecastError(f"an engine in this process still holds the GPU voice lock {path}; close it "
-                                        "first", stage="voice") from None
-                if holder != announced:
-                    self.log.info("waiting for the voice worker of pid %s (another CodeCast run holds the GPU voice "
-                                  "lock %s)", holder, path)
-                    announced = holder
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise CodecastError(f"another CodeCast run (pid {holder}) holds the GPU voice lock {path} after "
-                                        f"{self.start_timeout_s:g}s (voice.worker_start_timeout_s); if no such run "
-                                        "is alive, delete that file", stage="voice") from None
-                time.sleep(min(LOCK_POLL_S, remaining))
-                continue
-            try:
-                os.write(fd, mine)
-            finally:
-                os.close(fd)
-            self._lock_path, self._lock_bytes = path, mine
-            return
-
-    def _remove_stale(self, path: Path, seen: bytes) -> None:
-        """Remove the lock only if it is still the stale one judged: move it aside, check, restore anything else."""
-        aside = path.with_name(f"{path.name}.{os.getpid()}-{threading.get_ident()}.stale")
-        try:
-            os.replace(path, aside)
-        except OSError:  # gone already, or being written: the caller looks again
-            return
-        try:
-            if _read_lock(aside) == seen:
-                return
-            try:  # another run took the lock between our look and our move: put its file back
-                os.link(aside, path)
-            except FileExistsError:
-                self.log.warning("voice worker: lost a race restoring the GPU voice lock %s", path)
-            except OSError:
-                os.replace(aside, path)
-        finally:
-            aside.unlink(missing_ok=True)
+        while not _try_lock(fd):
+            holder = _lock_holder(path)
+            if holder != announced:
+                self.log.info("waiting for the voice worker of pid %s (another CodeCast run holds the GPU voice "
+                              "lock %s)", holder, path)
+                announced = holder
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise CodecastError(f"another CodeCast run (pid {holder}) holds the GPU voice lock {path} after "
+                                    f"{self.start_timeout_s:g}s (voice.worker_start_timeout_s)", stage="voice")
+            time.sleep(min(LOCK_POLL_S, remaining))
 
     def _release_lock(self) -> None:
-        path, self._lock_path = self._lock_path, None
-        if path is not None:
-            try:
-                if _read_lock(path) == self._lock_bytes:  # never remove a lock that is no longer ours
-                    path.unlink(missing_ok=True)
-            except OSError as e:
-                self.log.warning("voice worker: could not remove the GPU voice lock %s: %s", path, e)
+        """Unlock and close; the file stays (deleting it would race with other openers)."""
+        path, fd = self._lock_path, self._lock_fd
+        self._lock_path = self._lock_fd = None
+        if fd is None:
+            return
+        try:
+            _unlock(fd)
+        except OSError as e:
+            self.log.warning("voice worker: could not unlock the GPU voice lock %s: %s", path, e)
+        finally:
+            os.close(fd)
+            with _HELD_MUTEX:
+                _HELD.discard(str(path.resolve()))
 
 
 def _close_all() -> None:

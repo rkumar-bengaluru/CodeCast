@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import threading
@@ -179,71 +180,90 @@ from codecast.voice.worker import Worker
 w = Worker([sys.executable, sys.argv[1]], start_timeout_s=30, sentence_timeout_s=30, lock_device="cuda",
            lock_dir=Path(sys.argv[2]), log=logging.getLogger("holder"))
 w.start({"options": {}})
+print("held", flush=True)
 sys.stdin.readline()
 w.close()
 """
 
 
-def wait_for(cond, timeout: float = T) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if cond():
-            return True
-        time.sleep(0.1)
-    return False
-
-
 @pytest.fixture
-def other():
-    """A live process that is not this one, to name in lock files."""
-    p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
-    yield p
-    p.kill()
+def holder(tmp_path):
+    """Another CodeCast run holding the GPU voice lock; yields (process, the pid it wrote in the lock)."""
+    p = subprocess.Popen([sys.executable, "-c", HOLDER, str(FAKE), str(tmp_path / "locks")],
+                         stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    lines: list[bytes] = []
+    t = threading.Thread(target=lambda: lines.append(p.stdout.readline()), daemon=True)
+    t.start()
+    t.join(T)
+    assert lines == [b"held" + os.linesep.encode()] or lines == [b"held\n"], lines
+    pid = worker_mod._lock_holder(tmp_path / "locks" / "gpu.lock")  # the interpreter (a venv launcher's child)
+    assert pid is not None
+    try:
+        yield p, pid
+    finally:
+        if p.poll() is None:
+            p.kill()
+            p.wait(timeout=T)
+
+
+def release(p: subprocess.Popen) -> None:
+    p.stdin.write(b"go\n")
+    p.stdin.close()
     p.wait(timeout=T)
 
 
-def dead_pid() -> int:
-    p = subprocess.Popen([sys.executable, "-c", "pass"])
-    p.wait(timeout=T)
-    return p.pid
-
-
-def test_gpu_lock_waits(tmp_path, caplog):
+def test_gpu_lock_waits(tmp_path, caplog, holder):
     caplog.set_level(logging.INFO, logger="codecast")
+    p, pid = holder
     lock = tmp_path / "locks" / "gpu.lock"
-    holder = subprocess.Popen([sys.executable, "-c", HOLDER, str(FAKE), str(tmp_path / "locks")],
-                              stdin=subprocess.PIPE)  # another CodeCast run holding the GPU
     b = make(tmp_path, lock_device="cuda:0")  # R2: every non-cpu device shares the one `gpu` lock
     started: list[dict] = []
-    t = None
+    t = threading.Thread(target=lambda: started.append(b.start(hello())), daemon=True)
     try:
-        assert wait_for(lock.is_file)
-        t = threading.Thread(target=lambda: started.append(b.start(hello())), daemon=True)
         t.start()
         time.sleep(2.5)
         assert not started and b._proc is None
-        held_by = worker_mod._parse_lock(lock.read_bytes())[0]  # the holder's interpreter (a venv launcher's child)
-        assert f"waiting for the voice worker of pid {held_by}" in caplog.text
+        assert f"waiting for the voice worker of pid {pid}" in caplog.text
         assert str(lock) in caplog.text
-        holder.stdin.write(b"go\n")
-        holder.stdin.close()
-        holder.wait(timeout=T)
+        release(p)
         t.join(T)
         assert started
-        assert worker_mod._parse_lock(lock.read_bytes())[0] == worker_mod.os.getpid()
+        assert worker_mod._lock_holder(lock) == os.getpid()
     finally:
-        if holder.poll() is None:
-            holder.kill()
-            holder.wait(timeout=T)
-        if t is not None:
-            t.join(T)
+        t.join(T)
         b.close()
-    assert not lock.exists()
+    assert lock.is_file()  # left in place on release
+    assert not worker_mod._HELD
+
+
+def test_lock_wait_is_bounded_by_start_timeout(tmp_path, holder):
+    _, pid = holder
+    w = make(tmp_path, lock_device="cuda", start=1.5)
+    with pytest.raises(CodecastError) as e:
+        w.start(hello())
+    assert e.value.stage == "voice" and f"another CodeCast run (pid {pid})" in e.value.message
+    assert str(tmp_path / "locks" / "gpu.lock") in e.value.message
+    assert w._proc is None and not worker_mod._HELD
+
+
+def test_hard_killed_holder_frees_the_lock(tmp_path, holder):
+    import signal
+    p, pid = holder
+    os.kill(pid, signal.SIGTERM if sys.platform == "win32" else signal.SIGKILL)  # TerminateProcess on Windows
+    p.wait(timeout=T)
+    w = make(tmp_path, lock_device="cuda", start=10)
+    t0 = time.monotonic()
+    try:
+        w.start(hello())
+        assert time.monotonic() - t0 < 5
+    finally:
+        w.close()
 
 
 def test_same_process_holder_fails_at_once(tmp_path):
     a = make(tmp_path, lock_device="cuda")
     b = make(tmp_path, lock_device="cuda")
+    c = make(tmp_path, lock_device="cuda")
     try:
         a.start(hello())
         t0 = time.monotonic()
@@ -252,9 +272,12 @@ def test_same_process_holder_fails_at_once(tmp_path):
         assert time.monotonic() - t0 < 2
         assert "an engine in this process still holds the GPU voice lock" in e.value.message
         assert str(tmp_path / "locks" / "gpu.lock") in e.value.message
+        a.close()
+        c.start(hello())  # once closed, the next engine here takes it
     finally:
         a.close()
         b.close()
+        c.close()
 
 
 def test_cpu_takes_no_lock(tmp_path):
@@ -264,67 +287,6 @@ def test_cpu_takes_no_lock(tmp_path):
         assert not (tmp_path / "locks" / "gpu.lock").exists()
     finally:
         w.close()
-
-
-@pytest.mark.parametrize("content", ["dead", "0\n", "-5\n", "garbage\n"])
-def test_stale_lock_is_removed(tmp_path, content):
-    (tmp_path / "locks").mkdir()
-    (tmp_path / "locks" / "gpu.lock").write_text(f"{dead_pid()}\n" if content == "dead" else content)
-    w = make(tmp_path, lock_device="cuda", start=10)
-    try:
-        w.start(hello())
-        assert worker_mod._parse_lock((tmp_path / "locks" / "gpu.lock").read_bytes())[0] == worker_mod.os.getpid()
-    finally:
-        w.close()
-
-
-def test_reused_pid_lock_is_stale(tmp_path, monkeypatch, other):
-    (tmp_path / "locks").mkdir()
-    (tmp_path / "locks" / "gpu.lock").write_text(f"{other.pid}\n111\n")  # the pid lives, but it started at 222
-    real = worker_mod._start_time
-    monkeypatch.setattr(worker_mod, "_start_time", lambda pid: "222" if pid == other.pid else real(pid))
-    w = make(tmp_path, lock_device="cuda", start=5)
-    try:
-        w.start(hello())
-    finally:
-        w.close()
-
-
-def test_live_holder_with_matching_start_time_is_kept(tmp_path, other):
-    (tmp_path / "locks").mkdir()
-    lock = tmp_path / "locks" / "gpu.lock"
-    lock.write_text(worker_mod._lock_text(other.pid))
-    w = make(tmp_path, lock_device="cuda", start=1.5)
-    with pytest.raises(CodecastError) as e:
-        w.start(hello())
-    assert e.value.stage == "voice" and f"another CodeCast run (pid {other.pid})" in e.value.message
-    assert str(lock) in e.value.message
-    assert w._proc is None
-    assert lock.read_text() == worker_mod._lock_text(other.pid)
-
-
-def test_stale_lock_race_keeps_the_new_holders_lock(tmp_path, monkeypatch, other):
-    lock = tmp_path / "locks" / "gpu.lock"
-    lock.parent.mkdir()
-    lock.write_text(f"{dead_pid()}\n")
-    fresh = worker_mod._lock_text(other.pid).encode("ascii")
-    real = worker_mod._read_lock
-    raced: list[bool] = []
-
-    def racing(p):
-        raw = real(p)
-        if not raced and p == lock:
-            raced.append(True)
-            lock.write_bytes(fresh)  # right after our look, another run removed the stale lock and took its own
-        return raw
-
-    monkeypatch.setattr(worker_mod, "_read_lock", racing)
-    w = make(tmp_path, lock_device="cuda", start=1.5)
-    with pytest.raises(CodecastError) as e:
-        w.start(hello())  # it must not delete the other run's fresh lock, so it waits for it
-    assert f"pid {other.pid}" in e.value.message
-    assert lock.read_bytes() == fresh
-    assert [p.name for p in lock.parent.iterdir()] == ["gpu.lock"]
 
 
 def test_unwritable_lock_dir_fails_at_once(tmp_path, monkeypatch):
