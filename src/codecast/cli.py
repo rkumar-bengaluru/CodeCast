@@ -40,6 +40,10 @@ def _parser() -> argparse.ArgumentParser:
     d.add_argument("--voice", help="check this voice, <engine>:<voice>")
     f = sub.add_parser("fetch-voice", help="download the piper voice")
     f.add_argument("--config", type=Path)
+    v = sub.add_parser("voice-env", help="build a shipped voice worker's environment (uv)")
+    v.add_argument("worker", help="omnivoice or mlx-audio")
+    v.add_argument("--torch", choices=["cu128", "cpu"], help="PyTorch build (default: cu128 with an NVIDIA GPU, else cpu)")
+    v.add_argument("--config", type=Path)
     e = sub.add_parser("eval", help="evaluate a generated output directory")
     e.add_argument("out_dir", type=Path)
     e.add_argument("--no-reclone", action="store_true", help="skip the independent re-check against a fresh clone")
@@ -75,6 +79,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "fetch-voice":
             from codecast.voice.fetch_voice import fetch_voice
             fetch_voice(cfg.voice)
+            return 0
+        if args.cmd == "voice-env":
+            from codecast.voice.envs import create_env
+            print(f"voice environment ready: {create_env(args.worker, cfg.voice, torch=args.torch)}")
             return 0
         if args.cmd == "eval":
             from codecast.eval import evaluate
