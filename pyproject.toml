@@ -39,6 +39,8 @@ codecast = [
   "render/templates/*.html",
   "render/static/*",
   "render/static/fonts/*",
+  "voice/workers/*.py",
+  "voice/workers/*.txt",
 ]
 
 [tool.pytest.ini_options]
