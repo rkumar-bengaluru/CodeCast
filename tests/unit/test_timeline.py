@@ -52,17 +52,17 @@ def storyboard():
 def test_synthesize_storyboard_caches(tmp_path):
     eng = SilenceEngine(0.4)
     sb = storyboard()
-    tl = synthesize_storyboard(sb, eng, tmp_path / "audio", gap_s=0.15, tail_s=0.5)
+    tl = synthesize_storyboard(sb, eng, tmp_path, gap_s=0.15, tail_s=0.5)
     assert [s.scene_id for s in tl.scenes] == [f"scene0{i}" for i in range(1, 7)]
     n = len(eng.calls)
-    synthesize_storyboard(sb, eng, tmp_path / "audio", gap_s=0.15, tail_s=0.5)
+    synthesize_storyboard(sb, eng, tmp_path, gap_s=0.15, tail_s=0.5)
     assert len(eng.calls) == n          # all cached
     assert tl.narration_seconds == pytest.approx(130 * 0.4, rel=0.01)
 
 
 def test_duration_feedback(tmp_path):
     sb = storyboard()
-    tl = synthesize_storyboard(sb, SilenceEngine(0.5), tmp_path / "audio", gap_s=0.15, tail_s=0.5)
+    tl = synthesize_storyboard(sb, SilenceEngine(0.5), tmp_path, gap_s=0.15, tail_s=0.5)
     data = json.loads(duration_feedback(tl, sb, limits=OLD_WINDOW))
     assert data["target"] == [50.0, 80.0] and data["total"] == pytest.approx(tl.total)
     assert len(data["per_scene_seconds"]) == 6
@@ -71,7 +71,7 @@ def test_duration_feedback(tmp_path):
 
 def test_duration_feedback_gives_a_target_word_count(tmp_path):
     sb = storyboard()
-    tl = synthesize_storyboard(sb, SilenceEngine(0.45), tmp_path / "audio", gap_s=0.15, tail_s=0.5)
+    tl = synthesize_storyboard(sb, SilenceEngine(0.45), tmp_path, gap_s=0.15, tail_s=0.5)
     data = json.loads(duration_feedback(tl, sb, limits=OLD_WINDOW))
     words = data["spoken_words"]
     wps = words / tl.narration_seconds
@@ -83,7 +83,7 @@ def test_duration_feedback_gives_a_target_word_count(tmp_path):
 
 def test_duration_feedback_never_targets_below_the_word_minimum(tmp_path):
     sb = storyboard()  # 130 words; at 0.9 s/word the naive target would be far below 110
-    tl = synthesize_storyboard(sb, SilenceEngine(0.9), tmp_path / "audio", gap_s=0.15, tail_s=0.5)
+    tl = synthesize_storyboard(sb, SilenceEngine(0.9), tmp_path, gap_s=0.15, tail_s=0.5)
     data = json.loads(duration_feedback(tl, sb, limits=OLD_WINDOW))
     assert data["target_words"] == 110
     assert "from 130 to about 110 words" in data["instruction"]
@@ -95,7 +95,7 @@ OLD_WINDOW = LimitsConfig(duration_max_s=80.0)   # the original 50-80 s window t
 
 def test_feedback_uses_given_range(tmp_path):
     sb = storyboard()
-    tl = synthesize_storyboard(sb, SilenceEngine(0.5), tmp_path / "audio", gap_s=0.15, tail_s=0.5)
+    tl = synthesize_storyboard(sb, SilenceEngine(0.5), tmp_path, gap_s=0.15, tail_s=0.5)
     data = json.loads(duration_feedback(tl, sb, limits=LimitsConfig(duration_max_s=120)))
     assert data["target"] == [50.0, 120.0]
     assert "it must be 50-120s" in data["instruction"]
@@ -106,14 +106,14 @@ def test_cache_is_per_voice(tmp_path):
     sb = storyboard()
     a, b = SilenceEngine(0.4), SilenceEngine(0.4)
     a.voice_id, b.voice_id = "default", "rupak"
-    synthesize_storyboard(sb, a, tmp_path / "audio", gap_s=0.15, tail_s=0.5)
-    synthesize_storyboard(sb, b, tmp_path / "audio", gap_s=0.15, tail_s=0.5)
+    synthesize_storyboard(sb, a, tmp_path, gap_s=0.15, tail_s=0.5)
+    synthesize_storyboard(sb, b, tmp_path, gap_s=0.15, tail_s=0.5)
     assert len(b.calls) == len(a.calls) > 0     # nothing reused from voice "default"
 
 
 def test_lengthen_target_stays_below_the_word_ceiling_with_a_wide_window(tmp_path):
     sb = storyboard()  # 130 words at 0.3 s/word ≈ 43 s: too short for the default 50-300 s window
-    tl = synthesize_storyboard(sb, SilenceEngine(0.3), tmp_path / "audio", gap_s=0.15, tail_s=0.5)
+    tl = synthesize_storyboard(sb, SilenceEngine(0.3), tmp_path, gap_s=0.15, tail_s=0.5)
     data = json.loads(duration_feedback(tl, sb, limits=LimitsConfig()))
     assert tl.total < 50
     assert 130 < data["target_words"] < 200      # aims inside the reachable range, not at the 200-word ceiling
@@ -122,24 +122,33 @@ def test_lengthen_target_stays_below_the_word_ceiling_with_a_wide_window(tmp_pat
 def test_round1_reuses_round0_sentence(tmp_path):
     eng = SilenceEngine(0.4)
     sb = storyboard()
-    synthesize_storyboard(sb, eng, tmp_path / "round0", gap_s=0.15, tail_s=0.5)
+    synthesize_storyboard(sb, eng, tmp_path / "audio" / "round0", gap_s=0.15, tail_s=0.5)
     total = len(eng.calls)
     assert total >= 3
     sb.scenes[0].narration[0].text = "A brand new opening sentence."
     eng.calls.clear()
-    synthesize_storyboard(sb, eng, tmp_path / "round1", gap_s=0.15, tail_s=0.5)
+    synthesize_storyboard(sb, eng, tmp_path / "audio" / "round1", gap_s=0.15, tail_s=0.5)
     assert eng.calls == ["A brand new opening sentence."]
-    assert len(list((tmp_path / "round1").glob("*.wav"))) == total
-    assert not list((tmp_path / "round1").glob("*.tmp.wav"))
+    assert len(list((tmp_path / "audio" / "round1").glob("*.wav"))) == total
+    assert not list((tmp_path / "audio" / "round1").glob("*.tmp.wav"))
 
 
 def test_tmp_files_not_reused(tmp_path):
     eng = SilenceEngine(0.4)
     sb = storyboard()
-    synthesize_storyboard(sb, eng, tmp_path / "round0", gap_s=0.15, tail_s=0.5)
-    for w in list((tmp_path / "round0").glob("*.wav")):
+    synthesize_storyboard(sb, eng, tmp_path / "audio" / "round0", gap_s=0.15, tail_s=0.5)
+    for w in list((tmp_path / "audio" / "round0").glob("*.wav")):
         w.rename(w.with_name(w.stem + ".tmp.wav"))
-    (tmp_path / "round0" / "x.wav").write_bytes(b"junk")
+    (tmp_path / "audio" / "round0" / "x.wav").write_bytes(b"junk")
     n = len(eng.calls)
-    synthesize_storyboard(sb, eng, tmp_path / "round1", gap_s=0.15, tail_s=0.5)
+    synthesize_storyboard(sb, eng, tmp_path / "audio" / "round1", gap_s=0.15, tail_s=0.5)
+    assert len(eng.calls) == 2 * n
+
+
+def test_siblings_ignored_unless_parent_is_audio(tmp_path):
+    eng = SilenceEngine(0.4)
+    sb = storyboard()
+    synthesize_storyboard(sb, eng, tmp_path / "other" / "round0", gap_s=0.15, tail_s=0.5)
+    n = len(eng.calls)
+    synthesize_storyboard(sb, eng, tmp_path / "other" / "round1", gap_s=0.15, tail_s=0.5)
     assert len(eng.calls) == 2 * n

@@ -109,24 +109,35 @@ def write_srt(timeline: Timeline, path: Path) -> None:
     Path(path).write_text("\n".join(blocks), encoding="utf-8")
 
 
-def _reuse_sibling(cache_dir: Path, key: str) -> None:
-    """Copy `<key>.wav` from an earlier round's folder beside `cache_dir`, if there is one (atomic: tmp then replace)."""
+def _sibling_dirs(cache_dir: Path) -> list[Path]:
+    """The other round folders under the same `audio/` (none when `cache_dir` is not inside an `audio/` folder)."""
+    if cache_dir.parent.name != "audio":
+        return []
     try:
-        for sib in sorted(cache_dir.parent.iterdir()):
-            src = sib / f"{key}.wav"
-            if sib == cache_dir or not sib.is_dir() or not src.is_file():
+        return sorted(p for p in cache_dir.parent.iterdir() if p.is_dir() and p != cache_dir)
+    except OSError:
+        return []
+
+
+def _reuse_sibling(cache_dir: Path, siblings: list[Path], key: str) -> None:
+    """Copy `<key>.wav` from an earlier round's folder into `cache_dir` (tmp then replace); else leave it to voicing."""
+    tmp = cache_dir / f"{key}.copy.tmp.wav"
+    for sib in siblings:
+        src = sib / f"{key}.wav"
+        try:
+            if not src.is_file():
                 continue
-            tmp = cache_dir / f"{key}.copy.tmp.wav"
             shutil.copy2(src, tmp)
             tmp.replace(cache_dir / f"{key}.wav")
             return
-    except OSError:
-        return  # an unreadable sibling just means the sentence is voiced
+        except OSError:
+            tmp.unlink(missing_ok=True)  # an unreadable sibling: try the next, else voice the sentence
 
 
 def synthesize_storyboard(sb: Storyboard, engine: TTSEngine, cache_dir: Path, *, gap_s: float, tail_s: float) -> Timeline:
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
+    siblings = _sibling_dirs(cache_dir)
     scenes = []
     for i, sc in enumerate(sb.scenes):
         items = []
@@ -135,7 +146,7 @@ def synthesize_storyboard(sb: Storyboard, engine: TTSEngine, cache_dir: Path, *,
             key = hashlib.sha256(f"{engine.name}\x00{voice}\x00{sent.text}".encode()).hexdigest()[:20]
             wav = cache_dir / f"{key}.wav"
             if not wav.is_file():
-                _reuse_sibling(cache_dir, key)
+                _reuse_sibling(cache_dir, siblings, key)
             if not wav.is_file():
                 tmp = cache_dir / f"{key}.tmp.wav"
                 try:
