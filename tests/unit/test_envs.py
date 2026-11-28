@@ -164,3 +164,27 @@ def test_nvidia_smi_timeout_means_cpu():
         raise subprocess.TimeoutExpired(argv, kw["timeout"])
 
     assert envs.default_torch(hang) == "cpu"
+
+
+def test_mlx_audio_only_on_macos(cfg):
+    run = Recorder()
+    with pytest.raises(ConfigError, match="only on macOS"):
+        envs.create_env("mlx-audio", cfg, torch=None, runner=run)
+    assert run.calls == []
+
+
+def test_torch_flag_refused_on_macos(cfg, monkeypatch):
+    monkeypatch.setattr(envs.sys, "platform", "darwin")
+    run = Recorder()
+    for worker in ("omnivoice", "mlx-audio"):
+        with pytest.raises(ConfigError, match="--torch is not used on macOS"):
+            envs.create_env(worker, cfg, torch="cpu", runner=run)
+    assert run.calls == []
+
+
+def test_worker_python_set_is_refused(cfg, tmp_path):
+    cfg.worker_python = {"omnivoice": str(tmp_path / "mine" / "python.exe")}
+    run = Recorder()
+    with pytest.raises(ConfigError, match=r"voice\.worker_python\.omnivoice is set; voice-env builds only"):
+        envs.create_env("omnivoice", cfg, torch="cpu", runner=run)
+    assert run.calls == []

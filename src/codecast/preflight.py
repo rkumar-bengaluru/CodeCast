@@ -113,6 +113,9 @@ def run_checks(cfg: Config, *, require_key: bool, allow_network_tts: bool = Fals
         voice = f" ({piper_model_path(cfg.voice).stem})" if chosen == "piper" else ""
         checks.append(Check("tts", chosen is not None, f"engine: {chosen}{voice}" if chosen else f"no engine: {st}",
                             None if chosen else "codecast fetch-voice  (or run on macOS with `say`)", True))
+    if deep and not (named or "").startswith("model:"):
+        checks.append(Check("voice worker", False, "--deep only checks model voices; this voice has no worker to start",
+                            "name a model voice with --voice model:<voice file>", False))
     has_key = bool(os.environ.get(cfg.llm.api_key_env))
     checks.append(Check("llm api key", has_key,
                         f"{cfg.llm.api_key_env} is set" if has_key else f"{cfg.llm.api_key_env} is not set",

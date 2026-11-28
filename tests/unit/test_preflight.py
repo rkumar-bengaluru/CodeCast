@@ -75,3 +75,14 @@ def test_env_model_path_preflight_message_and_fix_unchanged(monkeypatch, tmp_pat
     cfg = load_config(env={"CODECAST_VOICE_MODEL": str(m)})
     tts = {c.name: c for c in preflight.run_checks(cfg, require_key=False)}["tts"]
     assert tts.ok and tts.message == "engine: piper (me)"
+
+
+def test_deep_without_a_model_voice_warns(monkeypatch):
+    patch_all_ok(monkeypatch)
+    cfg = load_config(env={})
+    assert "voice worker" not in {c.name for c in preflight.run_checks(cfg, require_key=False)}
+    for voice in (None, "say:Samantha"):
+        if voice:
+            cfg.voice.voice = voice
+        w = {c.name: c for c in preflight.run_checks(cfg, require_key=False, deep=True)}["voice worker"]
+        assert not w.ok and not w.fatal and w.message.startswith("--deep only checks model voices")

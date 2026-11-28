@@ -17,6 +17,7 @@ from codecast.voice.model_engine import interpreter_for
 TORCH_VERSION = "2.8.0"
 TORCH_INDEXES = {"cu128": "https://download.pytorch.org/whl/cu128", "cpu": "https://download.pytorch.org/whl/cpu"}
 TORCH_WORKERS = {"omnivoice"}  # the shipped workers that run on PyTorch (mlx-audio's model runs on MLX)
+MAC_ONLY_WORKERS = {"mlx-audio"}  # spec 5.6
 PYTHON = "3.12"
 
 
@@ -64,6 +65,14 @@ def create_env(name: str, cfg: VoiceConfig, *, torch: str | None, runner=subproc
         raise ConfigError(f"unknown worker {name!r}; shipped: {', '.join(voicefile.SHIPPED_WORKERS)}")
     if torch is not None and torch not in TORCH_INDEXES:
         raise ConfigError(f"--torch must be one of {', '.join(TORCH_INDEXES)}, not {torch!r}")
+    if name in MAC_ONLY_WORKERS and sys.platform != "darwin":
+        raise ConfigError(f"the {name} worker runs only on macOS (Apple silicon); use omnivoice here")
+    if torch is not None and sys.platform == "darwin":
+        raise ConfigError("--torch is not used on macOS: PyTorch comes from PyPI there (with MPS); leave it out")
+    if name in cfg.worker_python:
+        raise ConfigError(f"voice.worker_python.{name} is set; voice-env builds only "
+                          f"{Path(cfg.envs_dir).expanduser() / name} (unset it, or install into that interpreter "
+                          "yourself)")
     if shutil.which("uv") is None:
         raise ConfigError("uv is not on PATH; install it (https://docs.astral.sh/uv/) to build a voice environment")
     req = voicefile.WORKERS_DIR / f"{name}.requirements.txt"

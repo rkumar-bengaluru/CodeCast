@@ -49,7 +49,7 @@ class Handler:
         kwargs = {**self.options, **extra}
         if self.language and "lang_code" not in kwargs:
             kwargs["lang_code"] = self.language
-        chunks, rate = [], 24000 
+        chunks, rate = [], None  # the rate comes from the results
         for result in self.model.generate(text=text, **kwargs):
             chunks.append(np.array(result.audio.astype(mx.float32)).reshape(-1))
             rate = int(getattr(result, "sample_rate", None) or self.model.sample_rate)

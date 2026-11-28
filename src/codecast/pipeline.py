@@ -184,6 +184,9 @@ def run(opts: RunOptions, cfg: Config, *, provider=None, engine=None, renderer_f
                     _write_json(ws / "timeline.json", timeline.model_dump_json(indent=1))
             else:
                 timeline = Timeline.model_validate_json(_load_or_fail(ws / "timeline.json", "timeline.json", "voice"))
+            if own_engine is not None:  # voicing is done: free the worker, its GPU memory and the lock now
+                own_engine, done = None, own_engine
+                done.close()
 
             # [4] render
             current = "render"

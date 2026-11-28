@@ -127,8 +127,10 @@ str` ("ok" or the problem) and `create(voice_part, cfg) -> TTSEngine`. `engine_s
 status; preflight reports the named engine's status, or the probe's choice as now.
 
 **Whoever creates an engine closes it**: `with contextlib.closing(select_engine(...))`. The pipeline closes the
-engine it created in its existing `finally` (`pipeline.py:227`), but not one passed in by its caller
-(`run(engine=...)`); `estimate_length` likewise. A caller that forgets is covered by 5.4's guarantees, but it holds
+engine it created as soon as the voice stage is done, so render and compose run without the worker, its GPU memory
+or the GPU lock; its existing `finally` (`pipeline.py:227`) still closes it when the run fails or is interrupted
+earlier (closing is idempotent). It never closes one passed in by its caller (`run(engine=...)`);
+`estimate_length` likewise. A caller that forgets is covered by 5.4's guarantees, but it holds
 the worker (and its GPU memory) until it exits, so for Walker closing is required (5.10).
 
 ### 5.3 The model engine and its voice file
@@ -162,11 +164,10 @@ platforms:                    # optional: per-platform overrides of worker, mode
 (`sort_keys`, NFC-normalised strings) of the voice **after** the platform overrides are applied: worker name (or the
 `command` argv), `model`, `language`, `device` as given, `options`, `reference_text`, the **bytes** of the reference
 clip, and, for a shipped worker, the bytes of its `<name>.py` and `<name>.requirements.txt`. So a changed clip,
-setting or a CodeCast upgrade that changes the worker is a new voice; moving the voice file is not (its stem is part of the
-id, so a rename changes it). A `command:` voice's own script is not hashed; to re-voice after changing it, change its argv
-or options. The
-model library's own version inside an environment the user upgraded by hand is not in the key; the run report records
-it (5.4).
+setting or a CodeCast upgrade that changes the worker is a new voice; moving the voice file is not (its stem is part
+of the id, so a rename changes it). A `command:` voice's own script is not hashed; to re-voice after changing it,
+change its argv or options. The model library's own version inside an environment the user upgraded by hand is not
+in the key; the run report records it (5.4).
 
 **Same sentence, same audio.** The models sample, so each `synthesize` carries a `seed`, the first 8 bytes of
 SHA-256 over the NFC sentence text, as an unsigned integer; workers seed their libraries with it. A re-voiced
@@ -179,15 +180,19 @@ sentence then comes back with the same audio and the same length (up to GPU non-
 - **One worker per engine object, for the engine's life**: every sentence and every duration round of a run go to
   the same process.
 - **Spawned clean**: an argv list; the environment is an **allowlist**, not CodeCast's whole environment: `PATH`,
-  `SYSTEMROOT`, `WINDIR`, `TEMP`, `TMP`, `HOME`, `USERPROFILE`, `LOCALAPPDATA`, `APPDATA`, `HF_*`, `HUGGINGFACE_*`,
-  `TRANSFORMERS_*`, `CUDA_*`, `PYTORCH_*`, `TORCH_*`, `NVIDIA_*`, plus `PYTHONUTF8=1`, `PYTHONIOENCODING=utf-8` and
-  `PYTHONUNBUFFERED=1`. API keys and the rest of `.env` never reach a worker.
+  `SYSTEMROOT`, `WINDIR`, `TEMP`, `TMP`, `TMPDIR`, `HOME`, `USERPROFILE`, `LOCALAPPDATA`, `APPDATA`,
+  `XDG_CACHE_HOME`, the proxies `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`, the certificates `SSL_CERT_FILE` and
+  `REQUESTS_CA_BUNDLE` (each name in any case, so `https_proxy` too), `HF_*`, `HUGGINGFACE_*`, `TRANSFORMERS_*`,
+  `CUDA_*`, `PYTORCH_*`, `TORCH_*`, `NVIDIA_*`, plus `PYTHONUTF8=1`, `PYTHONIOENCODING=utf-8` and
+  `PYTHONUNBUFFERED=1`. So a model downloads behind a proxy and a corporate certificate; API keys and the rest of
+  `.env` never reach a worker.
 - **Pipes are drained**: one CodeCast thread reads the worker's stderr into `run.log` and keeps its last 40 lines;
   one reads stdout into a queue, so every wait has a timeout on Windows too (no `select` on pipes there). A stdout
   line that is not JSON is logged and ignored.
 - **Startup is reported and bounded.** The first load may download gigabytes, so the startup timeout is long
   (`voice.worker_start_timeout_s`, default 1800) and the worker sends `progress` lines that CodeCast logs (and
-  prints with `--verbose`). A sentence that takes longer than `voice.worker_sentence_timeout_s` (default 300) kills
+  prints with `--verbose`, and always in `doctor --deep`, `voice-design` and `--compute-video-length`, with the
+  worker's stderr lines). A sentence that takes longer than `voice.worker_sentence_timeout_s` (default 300) kills
   the worker and fails the voice stage.
 - **Stopped** by `close()`: send `quit` (the worker finishes the sentence in hand, then exits), wait 10 s, then kill
   the worker **and its children**.
@@ -203,7 +208,8 @@ sentence then comes back with the same audio and the same length (up to GPU non-
   - an `atexit` handler closes engines a caller forgot.
 - **One GPU, one worker at a time.** A worker on a GPU device takes a lock file
   (`<envs_dir>/locks/<device>.lock`, holding the pid). A second run waits for it, logging "waiting for the voice
-  worker of pid N (another CodeCast run)", up to the startup timeout. A CUDA out-of-memory error from a worker is
+  worker of pid N (another CodeCast run)" as a warning (so `run` shows it without `--verbose`), up to the startup
+  timeout. A CUDA out-of-memory error from a worker is
   reported as such, with that hint.
 - **Failures** are voice-stage `CodecastError`s carrying the worker's error message and the last 40 lines of its
   stderr. A worker that exits unexpectedly is not restarted: the run fails, naming the sentence.
