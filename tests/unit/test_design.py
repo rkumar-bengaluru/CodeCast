@@ -92,6 +92,8 @@ def test_doctor_deep_reports_ready(monkeypatch, tmp_path):
 def test_doctor_warns_developer_mode_off(monkeypatch, tmp_path):
     _quiet(monkeypatch)
     monkeypatch.setattr(preflight.sys, "platform", "win32")
+    # a faked win32 breaks shutil.which on POSIX, so skip the say probe
+    monkeypatch.setattr("codecast.voice.engines._say_available", lambda voice: False)
     monkeypatch.setattr(preflight, "_developer_mode_on", lambda: False)
     c = _by_name(preflight.run_checks(_cfg_for(_voice_file(tmp_path)), require_key=False))["developer mode"]
     assert not c.ok and not c.fatal and "copies files instead of linking" in c.message

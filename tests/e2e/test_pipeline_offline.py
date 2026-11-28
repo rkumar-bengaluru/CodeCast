@@ -57,7 +57,7 @@ def test_happy_path_produces_all_artifacts(git_repo, tmp_path):
 
 def test_duration_loop_revises_then_succeeds(git_repo, tmp_path):
     engine = SilenceEngine(0.7)                       # first pass ≈ 95 s → too long
-    provider = FakeProvider([submit(), lambda req: _shorter(engine) or submit_variant(1)])
+    provider = FakeProvider([submit(), lambda req: _shorter(engine)])
     rep = run(opts(git_repo, tmp_path), load_config(env={"CODECAST_DURATION_MAX_S": "80"}), provider=provider, engine=engine, preflight=False)
     assert rep.status == "ok", rep.failure
     assert rep.validation.duration_rounds == 1
@@ -66,7 +66,11 @@ def test_duration_loop_revises_then_succeeds(git_repo, tmp_path):
 
 def _shorter(engine):
     engine.seconds_per_word = 0.4                     # the "revised" narration speaks faster
-    return None
+    raw = valid_submission()                          # every sentence changes, so no round0 audio is reused
+    for sc in raw["scenes"]:
+        for sent in sc["narration"]:
+            sent["text"] = "So, " + sent["text"]
+    return tool_call("submit_storyboard", {"storyboard": raw})
 
 
 def test_duration_failure_exit_3_and_existing_output_untouched(git_repo, tmp_path):
