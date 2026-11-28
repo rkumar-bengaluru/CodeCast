@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import shutil
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -108,6 +109,21 @@ def write_srt(timeline: Timeline, path: Path) -> None:
     Path(path).write_text("\n".join(blocks), encoding="utf-8")
 
 
+def _reuse_sibling(cache_dir: Path, key: str) -> None:
+    """Copy `<key>.wav` from an earlier round's folder beside `cache_dir`, if there is one (atomic: tmp then replace)."""
+    try:
+        for sib in sorted(cache_dir.parent.iterdir()):
+            src = sib / f"{key}.wav"
+            if sib == cache_dir or not sib.is_dir() or not src.is_file():
+                continue
+            tmp = cache_dir / f"{key}.copy.tmp.wav"
+            shutil.copy2(src, tmp)
+            tmp.replace(cache_dir / f"{key}.wav")
+            return
+    except OSError:
+        return  # an unreadable sibling just means the sentence is voiced
+
+
 def synthesize_storyboard(sb: Storyboard, engine: TTSEngine, cache_dir: Path, *, gap_s: float, tail_s: float) -> Timeline:
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -118,6 +134,8 @@ def synthesize_storyboard(sb: Storyboard, engine: TTSEngine, cache_dir: Path, *,
             voice = getattr(engine, "voice_id", "")
             key = hashlib.sha256(f"{engine.name}\x00{voice}\x00{sent.text}".encode()).hexdigest()[:20]
             wav = cache_dir / f"{key}.wav"
+            if not wav.is_file():
+                _reuse_sibling(cache_dir, key)
             if not wav.is_file():
                 tmp = cache_dir / f"{key}.tmp.wav"
                 try:

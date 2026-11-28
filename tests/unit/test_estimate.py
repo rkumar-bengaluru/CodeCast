@@ -65,3 +65,30 @@ def test_estimate_closes_its_engine(tmp_path, monkeypatch):
     monkeypatch.setattr("codecast.estimate.select_engine", lambda *a, **k: made)
     estimate_length(tmp_path / "run1", load_config(env={}))
     assert made.closed == 1
+
+
+def test_estimate_reuses_round0(tmp_path):
+    from codecast.voice.timeline import synthesize_storyboard
+    from tests.unit.test_model_engine import engine as model_engine
+    ws = tmp_path / "run1"
+    sb = write_storyboard(ws)
+    first = model_engine(tmp_path / "a")
+    try:
+        synthesize_storyboard(sb, first, ws / "audio" / "round0", gap_s=0.15, tail_s=0.5)
+    finally:
+        first.close()
+    second = model_engine(tmp_path / "a")
+    est = estimate_length(ws, load_config(env={}), engine=second)
+    assert second._worker is None and est.total_s > 0
+    assert list((ws / "audio" / "estimate").glob("*.wav"))
+
+
+def test_estimate_reuses_round0_with_counting_engine(tmp_path):
+    from codecast.voice.timeline import synthesize_storyboard
+    ws = tmp_path / "run1"
+    sb = write_storyboard(ws)
+    eng = SilenceEngine(0.4)
+    synthesize_storyboard(sb, eng, ws / "audio" / "round0", gap_s=0.15, tail_s=0.5)
+    eng.calls.clear()
+    estimate_length(ws, load_config(env={}), engine=eng)
+    assert eng.calls == []
