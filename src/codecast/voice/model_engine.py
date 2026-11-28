@@ -75,7 +75,7 @@ class ModelEngine:
     def synthesize(self, text: str, out_wav: Path) -> None:
         text = unicodedata.normalize("NFC", text)
         out_wav = Path(out_wav)
-        raw = out_wav.with_name(out_wav.stem + ".raw.wav")
+        raw = out_wav.with_name(out_wav.stem + ".raw.wav").resolve()  # the worker's cwd is not ours
         try:
             self._started().request("synthesize", text=text, seed=sentence_seed(text), out=str(raw))
             convert_to_wav48k(raw, out_wav)

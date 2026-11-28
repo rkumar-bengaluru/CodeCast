@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Callable
 
@@ -35,3 +37,23 @@ def attach(ws: Path, *, verbose: bool) -> Callable[[], None]:
             logger.removeHandler(h)
             h.close()
     return detach
+
+
+@contextlib.contextmanager
+def voice_console() -> Iterator[None]:
+    """For a command without a run log (doctor --deep, voice-design, --compute-video-length): print the voice
+    worker's progress, stderr and waits (INFO and up of `codecast.voice`) to stderr while it runs."""
+    logger = logging.getLogger("codecast.voice")
+    console = logging.StreamHandler(sys.stderr)
+    console.setLevel(logging.INFO)
+    console.addFilter(_ConsoleFilter())
+    console.setFormatter(logging.Formatter("%(message)s"))
+    level = logger.level
+    logger.setLevel(logging.INFO)
+    logger.addHandler(console)
+    try:
+        yield
+    finally:
+        logger.removeHandler(console)
+        logger.setLevel(level)
+        console.close()

@@ -22,7 +22,8 @@ QUIT_WAIT_S = 10.0  # close(): how long a worker gets to finish the sentence in 
 LOCK_POLL_S = 1.0
 STDERR_KEEP = 40
 
-_ENV_NAMES = {"PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA"}
+_ENV_NAMES = {"PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE", "LOCALAPPDATA", "APPDATA",
+              "XDG_CACHE_HOME", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"}
 _ENV_PREFIXES = ("HF_", "HUGGINGFACE_", "TRANSFORMERS_", "CUDA_", "PYTORCH_", "TORCH_", "NVIDIA_")
 _ENV_FIXED = {"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
 
@@ -266,7 +267,7 @@ class Worker:
         try:
             for raw in stream:
                 line = raw.decode("utf-8", errors="replace").rstrip()
-                self.log.debug("voice worker stderr: %s", line[:2000])
+                self.log.info("voice worker stderr: %s", line[:2000])
                 self._stderr.append(line[:2000])
         except (OSError, ValueError):
             pass
@@ -338,9 +339,9 @@ class Worker:
         return self._error(f"voice worker exited unexpectedly (exit code {code}) during {op}")
 
     def _error(self, message: str) -> CodecastError:
-        if "cuda out of memory" in message.lower():
-            message += " (CUDA out of memory: another CodeCast run, or another program, may hold the GPU)"
         tail = self.stderr_tail()
+        if any("cuda out of memory" in text.lower() for text in (message, *tail)):  # also an OOM kill during hello
+            message += " (CUDA out of memory: another CodeCast run, or another program, may hold the GPU)"
         if tail:
             message += f"\nworker stderr (last {len(tail)} lines):\n" + "\n".join(tail)
         return CodecastError(message, stage="voice", details={"stderr_tail": tail})
@@ -412,8 +413,11 @@ class Worker:
         """Hold an OS lock on `<lock_dir>/gpu.lock` for the worker's life; the OS frees it if this process dies."""
         if not self.lock_device or self.lock_device == "cpu":
             return
-        self.lock_dir.mkdir(parents=True, exist_ok=True)
         path = self.lock_dir / "gpu.lock"  # R2: one lock for every GPU device
+        try:
+            self.lock_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            raise CodecastError(f"cannot create the GPU voice lock {path}: {e}", stage="voice") from e
         key = str(path.resolve())
         with _HELD_MUTEX:
             if key in _HELD:
@@ -446,7 +450,7 @@ class Worker:
         while not _try_lock(fd):
             holder = _lock_holder(path)
             if holder != announced:
-                self.log.info("waiting for the voice worker of pid %s (another CodeCast run holds the GPU voice "
+                self.log.warning("waiting for the voice worker of pid %s (another CodeCast run holds the GPU voice "
                               "lock %s)", holder, path)
                 announced = holder
             remaining = deadline - time.monotonic()
@@ -466,9 +470,9 @@ class Worker:
         except OSError as e:
             self.log.warning("voice worker: could not unlock the GPU voice lock %s: %s", path, e)
         finally:
-            os.close(fd)
-            with _HELD_MUTEX:
+            with _HELD_MUTEX:  # first: a raising os.close must not leave this process unable to take the lock again
                 _HELD.discard(str(path.resolve()))
+            os.close(fd)
 
 
 def _close_all() -> None:

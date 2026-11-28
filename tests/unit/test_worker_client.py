@@ -213,7 +213,7 @@ def release(p: subprocess.Popen) -> None:
 
 
 def test_gpu_lock_waits(tmp_path, caplog, holder):
-    caplog.set_level(logging.INFO, logger="codecast")
+    caplog.set_level(logging.WARNING, logger="codecast")  # a warning, so `run` shows it without --verbose
     p, pid = holder
     lock = tmp_path / "locks" / "gpu.lock"
     b = make(tmp_path, lock_device="cuda:0")  # R2: every non-cpu device shares the one `gpu` lock
@@ -376,3 +376,49 @@ def test_cuda_oom_hint(tmp_path):
         w.close()
     assert "CUDA out of memory" in e.value.message
     assert "another" in e.value.message and "GPU" in e.value.message
+
+
+def test_env_allowlist_passes_proxies_certificates_and_caches():
+    names = ["HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy", "SSL_CERT_FILE",
+             "REQUESTS_CA_BUNDLE", "XDG_CACHE_HOME", "TMPDIR", "TEMP", "TMP"]
+    env = worker_env({**{n: n.lower() for n in names}, "ALL_SECRETS": "x"})
+    assert all(env[n] == n.lower() for n in names) and "ALL_SECRETS" not in env
+
+
+def test_lock_dir_that_cannot_be_made_is_a_message(tmp_path):
+    (tmp_path / "locks").write_text("a file where the folder should be", encoding="utf-8")
+    w = make(tmp_path, lock_device="cuda")
+    with pytest.raises(CodecastError) as e:
+        w.start(hello())
+    assert "cannot create the GPU voice lock" in e.value.message and not worker_mod._HELD
+
+
+def test_release_lock_forgets_the_lock_even_if_close_raises(tmp_path, monkeypatch):
+    w = make(tmp_path, lock_device="cuda")
+    w._acquire_lock()
+    fd = w._lock_fd
+    real = worker_mod.os.close
+
+    def failing_close(n):
+        real(n)
+        if n == fd:
+            raise OSError(9, "Bad file descriptor")
+
+    monkeypatch.setattr(worker_mod.os, "close", failing_close)
+    with pytest.raises(OSError):
+        w._release_lock()
+    assert not worker_mod._HELD  # this process can take the lock again
+    monkeypatch.setattr(worker_mod.os, "close", real)
+    again = make(tmp_path, lock_device="cuda")
+    again._acquire_lock()
+    again._release_lock()
+
+
+def test_cuda_oom_hint_from_stderr_during_hello(tmp_path):
+    argv = script(tmp_path, "import sys\nsys.stdin.readline()\n"
+                            "sys.stderr.write('torch.OutOfMemoryError: CUDA out of memory. Tried 9 GiB\\n')\n"
+                            "sys.stderr.flush()\nsys.exit(1)\n")
+    w = make(tmp_path, argv)
+    with pytest.raises(CodecastError) as e:
+        w.start(hello())
+    assert "exited unexpectedly" in e.value.message and "another CodeCast run" in e.value.message

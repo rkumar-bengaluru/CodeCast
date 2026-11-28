@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
 from pathlib import Path
 
 from codecast.config import apply_voice_flags, load_config
 from codecast.errors import CodecastError, ConfigError
+from codecast import runlog
 from codecast.pipeline import RunOptions
 from codecast.pipeline import run as pipeline_run
 from codecast.preflight import run_checks
@@ -84,7 +86,8 @@ def _compute_video_length(args: argparse.Namespace, cfg) -> int:
         raise ConfigError("--compute-video-length cannot be combined with --from-stage")
     from codecast.estimate import estimate_length, format_estimate
     ws = args.workspace / args.run_id
-    est = estimate_length(ws, cfg, allow_network=args.allow_network_tts)
+    with runlog.voice_console():
+        est = estimate_length(ws, cfg, allow_network=args.allow_network_tts)
     print(f"{format_estimate(est)}\nsaved: {ws / 'length_estimate.json'}")
     return 0
 
@@ -97,7 +100,8 @@ def main(argv: list[str] | None = None) -> int:
         # sets the flag layer and checks the choice: a same-layer conflict (even both env variables) is exit 7
         apply_voice_flags(cfg, voice=getattr(args, "voice", None), voice_model=getattr(args, "voice_model", None))
         if args.cmd == "doctor":
-            checks = run_checks(cfg, require_key=False, deep=args.deep)
+            with runlog.voice_console() if args.deep else contextlib.nullcontext():
+                checks = run_checks(cfg, require_key=False, deep=args.deep)
             for c in checks:
                 tag = "OK  " if c.ok else ("FAIL" if c.fatal else "WARN")
                 print(f"[{tag}] {c.name}: {c.message}" + (f"\n       fix: {c.fix}" if c.fix and not c.ok else ""))
@@ -112,9 +116,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.cmd == "voice-design":
             from codecast.voice.design import design_voice
-            voice = design_voice(args.out, worker=args.worker, model=args.model, language=args.language,
-                                 instruct=args.instruct, text=args.text, options=_parse_options(args.option),
-                                 seed=args.seed, cfg=cfg.voice, force=args.force)
+            with runlog.voice_console():
+                voice = design_voice(args.out, worker=args.worker, model=args.model, language=args.language,
+                                     instruct=args.instruct, text=args.text, options=_parse_options(args.option),
+                                     seed=args.seed, cfg=cfg.voice, force=args.force)
             print(f"voice_id: {voice.voice_id}\nvoice file: {voice.path}\nreference clip: {voice.reference}")
             return 0
         if args.cmd == "eval":

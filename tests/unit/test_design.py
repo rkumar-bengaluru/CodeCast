@@ -140,3 +140,33 @@ def test_cli_missing_environment_is_config_error(tmp_path, capsys, monkeypatch):
     code, err = _design_cli(tmp_path, "omnivoice", capsys)
     assert code == 7 and "codecast voice-env omnivoice" in err
     assert not (tmp_path / "new").exists()
+
+
+def test_cli_design_prints_worker_progress(tmp_path, capsys, monkeypatch):
+    from codecast import cli
+    from codecast.voice import model_engine, voicefile
+    monkeypatch.setattr(model_engine, "interpreter_for", lambda worker, cfg: Path(sys.executable))
+    monkeypatch.setattr(voicefile, "WORKERS_DIR", Path(FAKE[1]).parent)
+    monkeypatch.setitem(voicefile.SHIPPED_WORKERS, "omnivoice", Path(FAKE[1]).name)
+    code = cli.main(["voice-design", str(tmp_path / "new" / "v.yaml"), "--worker", "omnivoice", "--model", "m",
+                     "--language", "hi", "--instruct", "x", "--text", "t", "--option", "progress=loading the model"])
+    err = capsys.readouterr().err
+    assert code == 0, err
+    assert "voice worker: loading the model" in err
+
+
+def test_design_sends_an_absolute_out(tmp_path, monkeypatch):
+    from codecast.voice.worker import Worker
+    sent: list[dict] = []
+    real = Worker.request
+
+    def spy(self, op, **fields):
+        sent.append({"op": op, **fields})
+        return real(self, op, **fields)
+
+    monkeypatch.setattr(Worker, "request", spy)
+    monkeypatch.chdir(tmp_path)
+    design_voice(Path("voices") / "rel.yaml", command=FAKE, model="m", language="hi", instruct="calm", text="t",
+                 options={}, cfg=_cfg(tmp_path))
+    out = next(s["out"] for s in sent if s["op"] == "design")
+    assert Path(out).is_absolute() and Path(out).parent == (tmp_path / "voices").resolve()

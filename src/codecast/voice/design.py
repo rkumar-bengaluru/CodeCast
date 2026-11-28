@@ -36,7 +36,7 @@ def design_voice(out: Path, *, worker: str | None = None, model: str, language: 
     w = new_worker(voice, cfg)
     try:
         w.start(voice.to_hello())
-        w.request("design", text=text, language=language, instruct=instruct, seed=seed, out=str(tmp_clip))
+        w.request("design", text=text, language=language, instruct=instruct, seed=seed, out=str(tmp_clip.resolve()))
         body: dict = {"command": list(command)} if command is not None else {"worker": worker}
         body.update({"model": model, "language": language, "device": device, "reference": clip.name,
                      "reference_text": text, "options": dict(options)})

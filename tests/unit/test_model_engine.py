@@ -192,6 +192,25 @@ def test_seed_is_sent(tmp_path, monkeypatch):
     assert sent[0]["op"] == "synthesize" and sent[0]["seed"] == sentence_seed("Seeded.")
 
 
+def test_synthesize_sends_an_absolute_out(tmp_path, monkeypatch):
+    e = engine(tmp_path)
+    sent: list[dict] = []
+    try:
+        e.synthesize("Warm up.", tmp_path / "w.wav")
+        real = e._worker.request
+
+        def spy(op, **fields):
+            sent.append({"op": op, **fields})
+            return real(op, **fields)
+
+        monkeypatch.setattr(e._worker, "request", spy)
+        monkeypatch.chdir(tmp_path)
+        e.synthesize("Relative.", Path("rel.wav"))
+    finally:
+        e.close()
+    assert Path(sent[0]["out"]).is_absolute() and (tmp_path / "rel.wav").is_file()
+
+
 def test_ready_recorded_in_report(tmp_repo_ws):
     from codecast.pipeline import RunOptions, run
     tmp_path, cfg = tmp_repo_ws
