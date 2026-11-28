@@ -1,4 +1,5 @@
-"""The real OmniVoice worker on the GPU (by hand: `pytest -m gpu tests/gpu`; needs `codecast voice-env omnivoice`)."""
+"""The real OmniVoice worker on the GPU, CUDA or MPS (by hand: `pytest -m gpu tests/gpu`; needs
+`codecast voice-env omnivoice`)."""
 from __future__ import annotations
 
 import subprocess
@@ -39,7 +40,7 @@ def _samples(path) -> bytes:
 
 
 def _engine(tmp_path, name: str, **fields) -> ModelEngine:
-    base = {"worker": "omnivoice", "model": "k2-fsa/OmniVoice", "language": "hi", "device": "cuda", **fields}
+    base = {"worker": "omnivoice", "model": "k2-fsa/OmniVoice", "language": "hi", "device": "auto", **fields}
     (tmp_path / f"{name}.yaml").write_text(yaml.safe_dump(base, allow_unicode=True), encoding="utf-8")
     return ModelEngine(load_voice_file(tmp_path / f"{name}.yaml"), VoiceConfig())
 
