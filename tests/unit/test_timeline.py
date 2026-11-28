@@ -117,3 +117,38 @@ def test_lengthen_target_stays_below_the_word_ceiling_with_a_wide_window(tmp_pat
     data = json.loads(duration_feedback(tl, sb, limits=LimitsConfig()))
     assert tl.total < 50
     assert 130 < data["target_words"] < 200      # aims inside the reachable range, not at the 200-word ceiling
+
+
+def test_round1_reuses_round0_sentence(tmp_path):
+    eng = SilenceEngine(0.4)
+    sb = storyboard()
+    synthesize_storyboard(sb, eng, tmp_path / "audio" / "round0", gap_s=0.15, tail_s=0.5)
+    total = len(eng.calls)
+    assert total >= 3
+    sb.scenes[0].narration[0].text = "A brand new opening sentence."
+    eng.calls.clear()
+    synthesize_storyboard(sb, eng, tmp_path / "audio" / "round1", gap_s=0.15, tail_s=0.5)
+    assert eng.calls == ["A brand new opening sentence."]
+    assert len(list((tmp_path / "audio" / "round1").glob("*.wav"))) == total
+    assert not list((tmp_path / "audio" / "round1").glob("*.tmp.wav"))
+
+
+def test_tmp_files_not_reused(tmp_path):
+    eng = SilenceEngine(0.4)
+    sb = storyboard()
+    synthesize_storyboard(sb, eng, tmp_path / "audio" / "round0", gap_s=0.15, tail_s=0.5)
+    for w in list((tmp_path / "audio" / "round0").glob("*.wav")):
+        w.rename(w.with_name(w.stem + ".tmp.wav"))
+    (tmp_path / "audio" / "round0" / "x.wav").write_bytes(b"junk")
+    n = len(eng.calls)
+    synthesize_storyboard(sb, eng, tmp_path / "audio" / "round1", gap_s=0.15, tail_s=0.5)
+    assert len(eng.calls) == 2 * n
+
+
+def test_siblings_ignored_unless_parent_is_audio(tmp_path):
+    eng = SilenceEngine(0.4)
+    sb = storyboard()
+    synthesize_storyboard(sb, eng, tmp_path / "other" / "round0", gap_s=0.15, tail_s=0.5)
+    n = len(eng.calls)
+    synthesize_storyboard(sb, eng, tmp_path / "other" / "round1", gap_s=0.15, tail_s=0.5)
+    assert len(eng.calls) == 2 * n

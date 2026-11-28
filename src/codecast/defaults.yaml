@@ -22,6 +22,9 @@ voice:
   edge_voice: en-US-AriaNeural
   gap_s: 0.15
   tail_s: 0.5
+  worker_start_timeout_s: 1800
+  worker_sentence_timeout_s: 300
+  envs_dir: ~/.cache/codecast/envs
 
 # Overridable per run with CODECAST_DURATION_MIN_S / _MAX_S, CODECAST_MIN_WORDS / _MAX_WORDS / _TARGET_WORDS,
 # CODECAST_MIN_SCENES / _MAX_SCENES.

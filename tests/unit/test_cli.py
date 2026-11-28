@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from codecast import cli
@@ -5,19 +7,18 @@ from codecast import cli
 
 def test_doctor_exit_codes(monkeypatch, capsys):
     from codecast.preflight import Check
-    monkeypatch.setattr(cli, "run_checks", lambda cfg, require_key, allow_network_tts=False:
+    monkeypatch.setattr(cli, "run_checks", lambda cfg, require_key, allow_network_tts=False, **kw:
                         [Check("ffmpeg", True, "ok", None, True), Check("llm api key", False, "unset", "export it", False)])
     assert cli.main(["doctor"]) == 0
     out = capsys.readouterr().out
     assert "WARN" in out and "llm api key" in out
-    monkeypatch.setattr(cli, "run_checks", lambda cfg, require_key, allow_network_tts=False:
+    monkeypatch.setattr(cli, "run_checks", lambda cfg, require_key, allow_network_tts=False, **kw:
                         [Check("ffmpeg", False, "missing", "brew install ffmpeg", True)])
     assert cli.main(["doctor"]) == 7
 
 
 def test_run_returns_report_exit_code(monkeypatch, tmp_path):
     from codecast.report import ReportBuilder
-    from codecast.config import load_config
     from codecast.errors import IngestError
 
     def fake_run(opts, cfg, **kw):
@@ -64,14 +65,14 @@ def test_voice_model_flag_beats_env(monkeypatch, tmp_path):
     seen = _capture_cfg(monkeypatch)
     monkeypatch.setenv("CODECAST_VOICE_MODEL", "from-env.onnx")
     cli.main(["run", "--repo", "x", "--out", str(tmp_path), "--voice-model", "flag.onnx"])
-    assert seen["cfg"].voice.model_path == "flag.onnx"
+    assert seen["cfg"].voice.model_path == str(Path.cwd() / "flag.onnx")
 
 
 def test_env_voice_used_without_flag(monkeypatch, tmp_path):
     seen = _capture_cfg(monkeypatch)
     monkeypatch.setenv("CODECAST_VOICE_MODEL", "from-env.onnx")
     cli.main(["run", "--repo", "x", "--out", str(tmp_path)])
-    assert seen["cfg"].voice.model_path == "from-env.onnx"
+    assert seen["cfg"].voice.model_path == str(Path.cwd() / "from-env.onnx")
 
 
 
@@ -134,3 +135,46 @@ def test_real_failure_prints_no_traceback(monkeypatch, tmp_path, capsys):
     assert code == 7 and "Traceback" not in err
     assert err.startswith("codecast FAILED (exit 7) at stage preflight")
     assert "Traceback" in (ws / "r1" / "run.log").read_text(encoding="utf-8")
+
+
+def test_voice_flag_beats_env(monkeypatch, tmp_path):
+    from codecast.config import resolved_voice
+    seen = _capture_cfg(monkeypatch)
+    monkeypatch.setenv("CODECAST_VOICE", "say:Bob")
+    cli.main(["run", "--repo", "x", "--out", str(tmp_path), "--voice", "say:Alex"])
+    assert resolved_voice(seen["cfg"].voice) == "say:Alex"
+
+
+def test_voice_and_voice_model_flags_conflict(monkeypatch, tmp_path, capsys):
+    _capture_cfg(monkeypatch)
+    rc = cli.main(["run", "--repo", "x", "--out", str(tmp_path), "--voice", "say:Alex", "--voice-model", "a.onnx"])
+    assert rc == 7
+    captured = capsys.readouterr()
+    assert captured.err == ("codecast: --voice and --voice-model both name a voice; set only one (two choices, "
+                            "neither silently wins)\n") and captured.out == ""
+
+
+def test_conflict_rule_same_in_process_and_cli(monkeypatch):
+    from codecast.config import load_config, resolved_voice
+    from codecast.errors import ConfigError
+    env = {"CODECAST_VOICE": "say:Alex", "CODECAST_VOICE_MODEL": "x.onnx"}
+    with pytest.raises(ConfigError, match="CODECAST_VOICE.*CODECAST_VOICE_MODEL"):
+        resolved_voice(load_config(None, env=env).voice)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    assert cli.main(["doctor"]) == 7
+
+
+def test_assignment_after_load_matches_voice_model_flag(monkeypatch, tmp_path):
+    """Walker's in-process pattern (load, then assign model_path) resolves as the CLI's --voice-model does."""
+    from codecast.config import load_config, resolved_voice
+    monkeypatch.chdir(tmp_path)
+    env = {"CODECAST_VOICE": "say:Alex", "CODECAST_VOICE_MODEL": "E.onnx"}
+    cfg = load_config(None, env=env)
+    cfg.voice.model_path = "M.onnx"
+    assert resolved_voice(cfg.voice) == f"piper:{Path.cwd() / 'M.onnx'}"
+    seen = _capture_cfg(monkeypatch)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    cli.main(["run", "--repo", "x", "--out", str(tmp_path), "--voice-model", "M.onnx"])
+    assert resolved_voice(seen["cfg"].voice) == resolved_voice(cfg.voice)

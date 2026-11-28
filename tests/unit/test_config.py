@@ -75,3 +75,78 @@ def test_null_llm_section_is_config_error(tmp_path):
 def test_list_voice_section_is_config_error(tmp_path):
     with pytest.raises(ConfigError, match="voice"):
         load_config(write(tmp_path, "voice: [1]\n"))
+
+
+def write_yaml(tmp_path, data):
+    import yaml
+    p = tmp_path / "cfg.yaml"
+    p.write_text(yaml.safe_dump(data), encoding="utf-8")
+    return p
+
+
+def test_voice_from_env_and_config(tmp_path):
+    from codecast.config import resolved_voice
+    cfg = load_config(write_yaml(tmp_path, {"voice": {"voice": "say:Samantha"}}), env={})
+    assert resolved_voice(cfg.voice) == "say:Samantha"
+    cfg = load_config(write_yaml(tmp_path, {"voice": {"voice": "say:Samantha"}}), env={"CODECAST_VOICE": "say:Alex"})
+    assert resolved_voice(cfg.voice) == "say:Alex"            # env beats config file
+
+
+def test_strongest_layer_wins_across_settings(tmp_path):
+    from codecast.config import resolved_voice
+    cfg = load_config(write_yaml(tmp_path, {"voice": {"voice": "say:Samantha"}}),
+                      env={"CODECAST_VOICE_MODEL": str(tmp_path / "v.onnx")})
+    assert resolved_voice(cfg.voice) == f"piper:{tmp_path / 'v.onnx'}"
+
+
+def test_same_layer_conflict_is_error(tmp_path):
+    from codecast.config import resolved_voice
+    cfg = load_config(None, env={"CODECAST_VOICE": "say:Alex", "CODECAST_VOICE_MODEL": "x.onnx"})
+    with pytest.raises(ConfigError, match="CODECAST_VOICE.*CODECAST_VOICE_MODEL"):
+        resolved_voice(cfg.voice)
+
+
+def test_model_voice_path_made_absolute(tmp_path, monkeypatch):
+    from codecast.config import resolved_voice
+    monkeypatch.chdir(tmp_path)
+    cfg = load_config(None, env={"CODECAST_VOICE": "model:voices/hi.yaml"})
+    assert resolved_voice(cfg.voice) == f"model:{Path.cwd() / 'voices' / 'hi.yaml'}"
+
+
+def test_no_voice_means_probe():
+    from codecast.config import resolved_voice
+    assert resolved_voice(load_config(None, env={}).voice) is None
+
+
+def test_source_fields_not_dumped_and_worker_defaults():
+    cfg = load_config(None, env={"CODECAST_VOICE": "say:Alex"})
+    dump = cfg.voice.model_dump()
+    assert "voice_source" not in dump and "model_path_source" not in dump
+    assert cfg.voice.worker_start_timeout_s == 1800 and cfg.voice.worker_python == {}
+
+
+def test_paths_absolute_from_load_on(tmp_path, monkeypatch):
+    from codecast.config import resolved_voice
+    first = tmp_path / "a"
+    first.mkdir()
+    monkeypatch.chdir(first)
+    cfg = load_config(None, env={"CODECAST_VOICE": "model:voices/hi.yaml"})
+    monkeypatch.chdir(tmp_path)
+    assert resolved_voice(cfg.voice) == f"model:{first.resolve() / 'voices' / 'hi.yaml'}" or \
+        resolved_voice(cfg.voice) == f"model:{Path(first) / 'voices' / 'hi.yaml'}"
+
+
+def test_voice_given_at_construction_is_the_config_layer():
+    """VoiceConfig(...), model_validate and a dump read back keep the named voice (never silently the probe)."""
+    from codecast.config import Config, VoiceConfig, resolved_voice
+    assert resolved_voice(VoiceConfig(voice="model:/v/x.yaml")) == "model:/v/x.yaml"
+    assert resolved_voice(VoiceConfig(model_path="/v/m.onnx")) == "piper:/v/m.onnx"
+    data = load_config(None, env={}).model_dump()
+    data["voice"]["voice"] = "say:Alex"
+    cfg = Config.model_validate(data)
+    assert resolved_voice(cfg.voice) == "say:Alex" and cfg.voice.voice_source == "config"
+    loaded = load_config(None, env={"CODECAST_VOICE": "say:Bob"})
+    assert loaded.voice.voice_source == "env"  # load_config records the real layer
+    again = Config.model_validate(loaded.model_dump())
+    assert resolved_voice(again.voice) == "say:Bob"
+    assert VoiceConfig().voice_source is None and resolved_voice(VoiceConfig()) is None

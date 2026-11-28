@@ -43,3 +43,46 @@ def test_missing_custom_voice_is_fatal_even_if_say_works(monkeypatch, tmp_path):
     tts = {c.name: c for c in preflight.run_checks(cfg, require_key=False)}["tts"]
     assert not tts.ok and tts.fatal and "custom voice not found" in tts.message
     assert "--voice-model" in tts.fix
+
+
+def test_named_voice_is_reported_and_fatal_on_its_status(monkeypatch, tmp_path):
+    from codecast.voice import engines
+    monkeypatch.setattr(preflight, "ffmpeg_problems", lambda: [])
+    monkeypatch.setattr(preflight, "_chromium_problem", lambda: None)
+    monkeypatch.setattr(engines, "_say_available", lambda v: v == "Alex")
+    cfg = load_config(env={"CODECAST_VOICE": "say:Alex"})
+    tts = {c.name: c for c in preflight.run_checks(cfg, require_key=False)}["tts"]
+    assert tts.ok and tts.message == "engine: say (Alex)"
+    cfg = load_config(env={"CODECAST_VOICE": "say:Nobody"})
+    tts = {c.name: c for c in preflight.run_checks(cfg, require_key=False)}["tts"]
+    assert not tts.ok and tts.fatal and "Nobody" in tts.message
+
+
+def test_env_model_path_preflight_message_and_fix_unchanged(monkeypatch, tmp_path):
+    from codecast.voice import engines
+    monkeypatch.setattr(preflight, "ffmpeg_problems", lambda: [])
+    monkeypatch.setattr(preflight, "_chromium_problem", lambda: None)
+    monkeypatch.setattr(engines, "_piper_installed", lambda: True)
+    monkeypatch.setattr(engines, "_say_available", lambda v: True)
+    cfg = load_config(env={"CODECAST_VOICE_MODEL": str(tmp_path / "nope.onnx")})
+    tts = {c.name: c for c in preflight.run_checks(cfg, require_key=False)}["tts"]
+    assert (tts.ok, tts.fatal) == (False, True)
+    assert tts.message == f"custom voice not found: {tmp_path / 'nope.onnx'}"
+    assert tts.fix == "fix the path given by --voice-model or CODECAST_VOICE_MODEL"
+    m = tmp_path / "me.onnx"
+    m.write_bytes(b"x")
+    (tmp_path / "me.onnx.json").write_text("{}")
+    cfg = load_config(env={"CODECAST_VOICE_MODEL": str(m)})
+    tts = {c.name: c for c in preflight.run_checks(cfg, require_key=False)}["tts"]
+    assert tts.ok and tts.message == "engine: piper (me)"
+
+
+def test_deep_without_a_model_voice_warns(monkeypatch):
+    patch_all_ok(monkeypatch)
+    cfg = load_config(env={})
+    assert "voice worker" not in {c.name for c in preflight.run_checks(cfg, require_key=False)}
+    for voice in (None, "say:Samantha"):
+        if voice:
+            cfg.voice.voice = voice
+        w = {c.name: c for c in preflight.run_checks(cfg, require_key=False, deep=True)}["voice worker"]
+        assert not w.ok and not w.fatal and w.message.startswith("--deep only checks model voices")

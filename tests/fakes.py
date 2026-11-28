@@ -11,6 +11,10 @@ class SilenceEngine:
     def __init__(self, seconds_per_word: float = 0.4):
         self.seconds_per_word = seconds_per_word
         self.calls: list[str] = []
+        self.closed = 0
+
+    def close(self) -> None:
+        self.closed += 1
 
     def synthesize(self, text: str, out_wav: Path) -> None:
         self.calls.append(text)

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codecast"
-version = "0.1.0"
+version = "1.2.0"
 description = "Turn a GitHub repo into a grounded, under-60-second developer explainer video"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
@@ -39,12 +39,15 @@ codecast = [
   "render/templates/*.html",
   "render/static/*",
   "render/static/fonts/*",
+  "voice/workers/*.py",
+  "voice/workers/*.txt",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-m 'not live'"
+addopts = "-m 'not live and not gpu'"
 markers = [
   "live: needs a real LLM API key and network; excluded by default",
   "integration: needs ffmpeg, Playwright Chromium and macOS say",
+  "gpu: runs a real voice worker (omnivoice, mlx-audio) on its model; excluded by default",
 ]

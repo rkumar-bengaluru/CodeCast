@@ -20,7 +20,7 @@ def test_run_yaml_shape():
 
 
 def test_committed_demo_paths_are_documented():
-    readme = (ROOT / "README.md").read_text()
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "output/video-classifier/explainer.mp4" in readme
     assert "ANTHROPIC_API_KEY" in readme and "OPENAI_API_KEY" in readme
     current = readme.split("## 9. What changed")[0]          # the corrections table may name the old tools
