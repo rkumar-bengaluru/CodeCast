@@ -64,8 +64,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         load_env_file(Path(".env"))
         cfg = load_config(getattr(args, "config", None))
+        # sets the flag layer and checks the choice: a same-layer conflict (even both env variables) is exit 7
         apply_voice_flags(cfg, voice=getattr(args, "voice", None), voice_model=getattr(args, "voice_model", None))
-        # (it also checks the choice: a same-layer conflict, e.g. both env variables, is exit 7 here too)
         if args.cmd == "doctor":
             checks = run_checks(cfg, require_key=False)
             for c in checks:

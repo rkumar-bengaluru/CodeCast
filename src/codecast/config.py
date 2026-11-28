@@ -76,15 +76,6 @@ class VoiceConfig(BaseModel):
     envs_dir: str = "~/.cache/codecast/envs"
     worker_python: dict[str, str] = {}
 
-    def __setattr__(self, name: str, value: Any) -> None:
-        # Assigning voice or model_path after load is the flag layer, and paths are made absolute when stored.
-        if name == "voice":
-            super().__setattr__("voice_source", "flag" if value else None)
-            value = absolute_voice(value) if value else value
-        elif name == "model_path":
-            super().__setattr__("model_path_source", "flag" if value else None)
-            value = _absolute(str(value)) if value else value
-        super().__setattr__(name, value)
     piper_voice: str = "en_US-lessac-medium"
     voices_dir: str = "~/.cache/codecast/voices"
     say_voice: str = "Samantha"
@@ -95,6 +86,16 @@ class VoiceConfig(BaseModel):
     @property
     def voices_path(self) -> Path:
         return Path(self.voices_dir).expanduser()
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        # Assigning voice or model_path after load is the flag layer, and paths are made absolute when stored.
+        if name == "voice":
+            super().__setattr__("voice_source", "flag" if value else None)
+            value = absolute_voice(value) if value else value
+        elif name == "model_path":
+            super().__setattr__("model_path_source", "flag" if value else None)
+            value = _absolute(str(value)) if value else value
+        super().__setattr__(name, value)
 
 
 _VOICE_NAMES = {

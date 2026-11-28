@@ -1,4 +1,5 @@
 from pathlib import Path
+
 import pytest
 
 from codecast import cli
@@ -18,7 +19,6 @@ def test_doctor_exit_codes(monkeypatch, capsys):
 
 def test_run_returns_report_exit_code(monkeypatch, tmp_path):
     from codecast.report import ReportBuilder
-    from codecast.config import load_config
     from codecast.errors import IngestError
 
     def fake_run(opts, cfg, **kw):
@@ -162,3 +162,18 @@ def test_conflict_rule_same_in_process_and_cli(monkeypatch):
     for k, v in env.items():
         monkeypatch.setenv(k, v)
     assert cli.main(["doctor"]) == 7
+
+
+def test_assignment_after_load_matches_voice_model_flag(monkeypatch, tmp_path):
+    """Walker's in-process pattern (load, then assign model_path) resolves as the CLI's --voice-model does."""
+    from codecast.config import load_config, resolved_voice
+    monkeypatch.chdir(tmp_path)
+    env = {"CODECAST_VOICE": "say:Alex", "CODECAST_VOICE_MODEL": "E.onnx"}
+    cfg = load_config(None, env=env)
+    cfg.voice.model_path = "M.onnx"
+    assert resolved_voice(cfg.voice) == f"piper:{Path.cwd() / 'M.onnx'}"
+    seen = _capture_cfg(monkeypatch)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    cli.main(["run", "--repo", "x", "--out", str(tmp_path), "--voice-model", "M.onnx"])
+    assert resolved_voice(seen["cfg"].voice) == resolved_voice(cfg.voice)

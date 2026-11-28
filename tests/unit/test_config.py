@@ -125,25 +125,6 @@ def test_source_fields_not_dumped_and_worker_defaults():
     assert cfg.voice.worker_start_timeout_s == 1800 and cfg.voice.worker_python == {}
 
 
-def test_assignment_after_load_is_flag_layer_like_cli(tmp_path, monkeypatch):
-    """Walker's pattern: load with both env vars, then assign model_path; same as the CLI's --voice-model."""
-    from codecast import cli
-    from codecast.config import resolved_voice
-    monkeypatch.chdir(tmp_path)
-    env = {"CODECAST_VOICE": "say:Alex", "CODECAST_VOICE_MODEL": "E.onnx"}
-    cfg = load_config(None, env=env)
-    cfg.voice.model_path = "M.onnx"
-    assert resolved_voice(cfg.voice) == f"piper:{Path.cwd() / 'M.onnx'}"
-    from codecast.config import apply_voice_flags
-    cfg2 = load_config(None, env=env)
-    apply_voice_flags(cfg2, voice=None, voice_model="M.onnx")
-    assert resolved_voice(cfg2.voice) == resolved_voice(cfg.voice)
-    for k, v in env.items():
-        monkeypatch.setenv(k, v)
-    from codecast.errors import ConfigError  # the CLI path raises no conflict: it resolves like in-process
-    cli.main(["doctor", "--voice-model", "M.onnx"])
-
-
 def test_paths_absolute_from_load_on(tmp_path, monkeypatch):
     from codecast.config import resolved_voice
     first = tmp_path / "a"
