@@ -11,7 +11,7 @@ import wave
 from pathlib import Path
 from typing import Protocol
 
-from codecast.config import VoiceConfig
+from codecast.config import VoiceConfig, resolved_voice, winning_setting
 from codecast.errors import CodecastError, ConfigError
 from codecast.voice import registry
 
@@ -215,15 +215,14 @@ def named_problem(voice: str, cfg: VoiceConfig, *, allow_network: bool) -> str |
 
 
 def select_engine(cfg: VoiceConfig, *, allow_network: bool) -> TTSEngine:
-    from codecast.config import resolved_voice
     named = resolved_voice(cfg)
     if named is not None:
-        problem = named_problem(named, cfg, allow_network=allow_network)
-        if problem and cfg.model_path and named == f"piper:{cfg.model_path}":
-            # --voice-model / CODECAST_VOICE_MODEL keep their message word for word (R3)
-            raise ConfigError(f"{problem.removeprefix(f'piper:{cfg.model_path}: ')} "
-                              "(from --voice-model or CODECAST_VOICE_MODEL)")
-        if problem:
+        if winning_setting(cfg) == "model":
+            # --voice-model / CODECAST_VOICE_MODEL / config model_path: today's messages word for word (R3)
+            problem = registry.kinds()["piper"].status(cfg.model_path, cfg, allow_network=allow_network)
+            if problem != "ok":
+                raise ConfigError(f"{problem} (from --voice-model or CODECAST_VOICE_MODEL)")
+        elif problem := named_problem(named, cfg, allow_network=allow_network):
             raise ConfigError(problem)
         kind, _, part = named_kind(named)
         return kind.create(part, cfg)

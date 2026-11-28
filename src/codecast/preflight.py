@@ -6,8 +6,9 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from codecast.voice import registry
 from codecast.compose.ffmpeg import ffmpeg_problems
-from codecast.config import Config, resolved_voice
+from codecast.config import Config, resolved_voice, winning_setting
 from codecast.voice.engines import engine_status, named_kind, named_problem, piper_model_path
 
 
@@ -40,12 +41,18 @@ def run_checks(cfg: Config, *, require_key: bool, allow_network_tts: bool = Fals
                         ".venv/bin/python -m playwright install chromium" if chrome else None, True))
     st = engine_status(cfg.voice, allow_network=allow_network_tts)
     named = resolved_voice(cfg.voice)
-    if named is not None:
+    if named is not None and winning_setting(cfg.voice) == "model":
+        problem = registry.kinds()["piper"].status(cfg.voice.model_path, cfg.voice, allow_network=allow_network_tts)
+        stem = Path(cfg.voice.model_path).stem
+        checks.append(Check("tts", problem == "ok", f"engine: piper ({stem})" if problem == "ok" else problem,
+                            None if problem == "ok" else "fix the path given by --voice-model or CODECAST_VOICE_MODEL",
+                            True))
+    elif named is not None:
         problem = named_problem(named, cfg.voice, allow_network=allow_network_tts)
         _, engine, part = named_kind(named)
         shown = Path(part).stem if engine == "piper" else part
         checks.append(Check("tts", problem is None, f"engine: {engine} ({shown})" if problem is None else problem,
-                            None if problem is None else "fix the voice named by --voice, --voice-model, CODECAST_VOICE, CODECAST_VOICE_MODEL or config",
+                            None if problem is None else "fix the voice named by --voice, CODECAST_VOICE or config",
                             True))
     elif cfg.voice.model_path and st["piper"] != "ok":
         checks.append(Check("tts", False, st["piper"], "fix the path given by --voice-model or CODECAST_VOICE_MODEL",

@@ -201,3 +201,49 @@ def test_named_voice_never_falls_back(monkeypatch, tmp_path):
 def test_builtin_engines_close_is_a_noop_and_status_has_model(tmp_path):
     assert SayEngine("x").close() is None
     assert "model" in engines.engine_status(cfg(tmp_path), allow_network=False)
+
+
+# --- model_path keeps today's messages through the real config path (R3) --------------------------------------------
+
+def _model_cfg(path, **env):
+    from codecast.config import load_config
+    return load_config(env={"CODECAST_VOICE_MODEL": str(path), **env})
+
+
+def test_env_model_path_messages_word_for_word(monkeypatch, tmp_path):
+    monkeypatch.setattr(engines, "_piper_installed", lambda: True)
+    monkeypatch.setattr(engines, "_say_available", lambda v: True)
+    c = _model_cfg(tmp_path / "nope.onnx")
+    with pytest.raises(ConfigError) as e:
+        select_engine(c.voice, allow_network=False)
+    assert str(e.value) == f"custom voice not found: {tmp_path / 'nope.onnx'} (from --voice-model or CODECAST_VOICE_MODEL)"
+    m = custom(tmp_path, json=False)
+    with pytest.raises(ConfigError) as e:
+        select_engine(_model_cfg(m).voice, allow_network=False)
+    assert str(e.value) == (f"custom voice config missing: {m}.json (piper needs it next to the .onnx)"
+                            " (from --voice-model or CODECAST_VOICE_MODEL)")
+    monkeypatch.setattr(engines, "_piper_installed", lambda: False)
+    with pytest.raises(ConfigError) as e:
+        select_engine(_model_cfg(m).voice, allow_network=False)
+    assert str(e.value) == "piper-tts not installed (from --voice-model or CODECAST_VOICE_MODEL)"
+
+
+def test_flag_model_path_messages_word_for_word(monkeypatch, tmp_path):
+    from codecast.config import apply_voice_flags, load_config
+    monkeypatch.setattr(engines, "_piper_installed", lambda: True)
+    c = load_config(env={})
+    apply_voice_flags(c, voice=None, voice_model=str(tmp_path / "nope.onnx"))
+    with pytest.raises(ConfigError) as e:
+        select_engine(c.voice, allow_network=False)
+    assert str(e.value) == f"custom voice not found: {tmp_path / 'nope.onnx'} (from --voice-model or CODECAST_VOICE_MODEL)"
+
+
+def test_weaker_model_path_equal_to_flag_voice_is_not_the_model_message(monkeypatch, tmp_path):
+    from codecast.config import apply_voice_flags
+    monkeypatch.setattr(engines, "_piper_installed", lambda: True)
+    p = tmp_path / "nope.onnx"
+    c = _model_cfg(p)
+    apply_voice_flags(c, voice=f"piper:{p}", voice_model=None)  # the flag layer beats the env layer
+    with pytest.raises(ConfigError) as e:
+        select_engine(c.voice, allow_network=False)
+    assert "from --voice-model" not in str(e.value) and str(e.value).startswith("piper:")

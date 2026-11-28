@@ -122,19 +122,26 @@ def absolute_voice(voice: str) -> str:
     return voice
 
 
-def resolved_voice(vc: VoiceConfig) -> str | None:
-    """The winning `<engine>:<voice>` (spec 5.1), or None when nothing names a voice (the probe picks)."""
+def winning_setting(vc: VoiceConfig) -> Literal["voice", "model"] | None:
+    """Which setting names the voice: `voice` (--voice, CODECAST_VOICE, config), `model` (model_path), or None."""
     layers = [(src, kind) for kind, src, val in (("voice", vc.voice_source, vc.voice),
                                                  ("model", vc.model_path_source, vc.model_path)) if val and src]
     if not layers:
         return None
     top = max(_STRENGTH[src] for src, _ in layers)
     winners = [kind for src, kind in layers if _STRENGTH[src] == top]
-    src = next(s for s, _ in layers if _STRENGTH[s] == top)
     if len(winners) > 1:
-        a, b = _VOICE_NAMES[src]
+        a, b = _VOICE_NAMES[next(s for s, _ in layers if _STRENGTH[s] == top)]
         raise ConfigError(f"{a} and {b} both name a voice; set only one (two choices, neither silently wins)")
-    if winners[0] == "model":
+    return winners[0]
+
+
+def resolved_voice(vc: VoiceConfig) -> str | None:
+    """The winning `<engine>:<voice>` (spec 5.1), or None when nothing names a voice (the probe picks)."""
+    winner = winning_setting(vc)
+    if winner is None:
+        return None
+    if winner == "model":
         return f"piper:{vc.model_path}"
     engine, sep, part = vc.voice.partition(":")
     if not sep or not engine or not part:
