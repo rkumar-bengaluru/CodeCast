@@ -261,8 +261,8 @@ gives exit 7 through `cli.main(["doctor"])`).
 ### Task 7: The shipped workers and `codecast voice-env`
 
 **Files:**
-- Create: `src/codecast/voice/workers/omnivoice.py`, `omnivoice.requirements.txt`, `mlx_audio.py`,
-  `mlx-audio.requirements.txt` (worker name `mlx-audio`, file `mlx_audio.py`; the name→file map lives in
+- Create: `src/codecast/voice/workers/omnivoice_worker.py`, `omnivoice.requirements.txt`, `mlx_audio_worker.py`,
+  `mlx-audio.requirements.txt` (worker name `mlx-audio`, file `mlx_audio_worker.py`; the name→file map lives in
   `voicefile.py`), `src/codecast/voice/envs.py`
 - Modify: `src/codecast/cli.py` (`voice-env` subcommand)
 - Test: `tests/unit/test_envs.py`, `tests/gpu/test_omnivoice.py` (marker `gpu`)
@@ -270,10 +270,10 @@ gives exit 7 through `cli.main(["doctor"])`).
 **Interfaces:**
 - Produces: `envs.create_env(worker: str, cfg: VoiceConfig, *, torch: str | None, runner=subprocess.run) -> Path`
   (returns the interpreter); `codecast voice-env <worker> [--torch cu128|cpu]`.
-- Workers: `omnivoice.py` loads `OmniVoice.from_pretrained(model, device_map=<device>, dtype=float16 on cuda else
+- Workers: `omnivoice_worker.py` loads `OmniVoice.from_pretrained(model, device_map=<device>, dtype=float16 on cuda else
   float32)`, prepares `create_voice_clone_prompt(ref_audio, ref_text)` in `hello`, seeds `torch.manual_seed(seed)`
   (and numpy/random) per request, generates with `options` passed as keyword arguments, writes with `soundfile` at
-  24000; `design` uses `instruct`. `mlx_audio.py` the same through mlx-audio's TTS API (`mx.random.seed`).
+  24000; `design` uses `instruct`. `mlx_audio_worker.py` the same through mlx-audio's TTS API (`mx.random.seed`).
   Requirements pinned: `omnivoice==0.2.1`, `soundfile`, torch pinned by `envs.py` (`torch==2.8.0`,
   `torchaudio==2.8.0`, index `https://download.pytorch.org/whl/cu128` for `cu128`, `.../whl/cpu` for `cpu`, PyPI on
   the Mac).
